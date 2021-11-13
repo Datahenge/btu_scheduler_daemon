@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "/home/sysop/projects/rust/pyrq_scheduler"
+		}
+	],
+	"settings": {
+		"rust-analyzer.inlayHints.chainingHints": false,
+		"rust-analyzer.inlayHints.parameterHints": false,
+		"rust-analyzer.inlayHints.typeHints": false,
+		"rust-analyzer.server.path": "/opt/bin/rust-analyzer/rust-analyzer",
+		"rust-analyzer.trace.extension": true
+	}
+}

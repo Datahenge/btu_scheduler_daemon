@@ -1,0 +1,3 @@
+[flake8]
+use-flake8-tabs = true
+tab-width=4
