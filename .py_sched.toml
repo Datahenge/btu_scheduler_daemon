@@ -1,0 +1,9 @@
+# This is the TOML configuration file for the Rusty PyRQ Scheduler
+
+name = "Rusty PyScheduler"
+max_seconds_between_updates = 90
+mysql_user = "root"
+mysql_password = "echo3@sevenFTP"
+mysql_host = "localhost"
+mysql_port = 3313
+mysql_database = "v13testdb"
