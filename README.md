@@ -1,4 +1,4 @@
-### Rusty PyRQ Scheduler
+## Rusty PyRQ Scheduler
 
 ### Purpose
 
@@ -6,7 +6,7 @@ The purpose of this program is to create a Linux daemon that:
 
 1. Initializes scheduled tasks (*for now, Python functions*) into a Redis Queue.
 2. Listens for schedule changes over a Unix Domain Socket.
-3. Periodically rebuilds the schedule from scratch (e.g. every 15 minutes)
+3. Periodically rereads the schedule from the 'system of record' (e.g. every 15 minutes)
 
 ### Why?
 
@@ -82,5 +82,16 @@ Repeating my Purpose from above.  I want to write a daemon that:
   * log files.
 
 #### See also:
-
 https://github.com/Couragium/rsmq-async-rs
+
+
+# License
+
+This project is licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   http://opensource.org/licenses/MIT)
+
+at your option.
