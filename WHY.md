@@ -10,34 +10,37 @@ I needed various [Frappe](https://github.com/frappe/frappe) and [ERPNext](https:
 4. Allow website users to configure and update both Schedules and Tasks, in real time, and act on those changes immediately.
 5. Capture the results of the scheduled tasks in a Log table, viewable on the website.
 
-It was the latter 3 requirements that led me away from the out-of-the-box `Scheduled Job Types`, and into a custom application development.
+It was the latter 3 requirements that convinced me the out-of-the-box `Scheduled Job Types` would never work.  I needed to write my own applications.
 
-#### What Code?  What Schedules?
+### What Code?  What Schedules?
 
-The Python code to-be-executed, and the task schedules, are owned by my Frappe application: [*Background Tasks Unleashed*](https://github.com/Datahenge/btu)
+The Python code to-be-executed (Tasks), and the cron schedules (Task Schedules), are owned by my Frappe application: [*Background Tasks Unleashed*](https://github.com/Datahenge/btu).
 
-  * Tasks and Schedules are stored in Frappe DocTypes (MySQL table).  These records are considering the single "Source of Truth".
-  * Via their browser, website users can edit Tasks and Schedules.  They can also review the Logs, to see precisely what happened when those Tasks executed.
-  * Tasks should be stored as Jobs in [Python RQ](https://python-rq.org/), which can be be processed by worker threads.
+Summary:
+  * Tasks and Schedules are stored in Frappe DocTypes (with persistent MySQL tables).  I consider these records to be the ["The Single Source of Truth"](https://en.wikipedia.org/wiki/Single_Source_of_Truth).
+  * Via their browser, website users can edit Tasks and Schedules.  They can also review execution Logs (or receive them automatically via email) to understand precisely what happened when a Tasks executed.
+  * Tasks and Schedules combine to become Jobs in [Python RQ](https://python-rq.org/), which can be be processed by worker threads.
 
 While helpful, the BTU application alone doesn't solve the entire problem.  The biggest gap was this:
 
-*How do the BTU Tasks and Schedules get pushed into RQ, and remain synchronized?*
+  "***How** do these BTU Tasks and Schedules get pushed into RQ, remain on-schedule, and synchronize with changes made via the website?"*
 
-### Why not use RQ-Scheduler?
+### Why not RQ-Scheduler?
 
-Initially, the third party [RQ Scheduler](https://github.com/rq/rq-scheduler) seems to be an ideal solution.
+Initially, the third party [RQ Scheduler](https://github.com/rq/rq-scheduler) application was a satisfactory solution.  However, it had a few gaps.
 
-However, assume you reboot your Linux server.  First, you launch RQ.  Next, you launch RQ Scheduler.  What happens?
+Assume you reboot your Linux server.  Whether via [Supervisor](http://supervisord.org/) or [systemd](https://en.wikipedia.org/wiki/Systemd), various applications are launched: MySQL, Redis, the Frappe Web Server, Python RQ, and the RQ Scheduler.  But what happens to those scheduled Tasks?
 
-*Nothing at all.*
+*Probably nothing at all.*
 
-The problem with RQ Scheduler is that it's an entirely **passive** application:
+The challenge with RQ Scheduler is that it's mostly a **passive** application:
 
 * RQ Scheduler needs "*something*" to feed it the initial schedule data, which it writes to RQ.
 * RQ Scheduler needs "*something*" to continuously communicate with it: creating, updating, and deleting schedules.
 
-So, what is that "*something*"?
+Maybe the Redis Queue persisted data to an RDB file.  Maybe not.  I need some guarantees that no matter what, these Tasks are running, exactly per their definition in the MySQL tables.
+
+But how?
 
 ### Automation Options
 
@@ -66,7 +69,6 @@ What if I forked the Python RQ Scheduler, and created an alternate version?
 
 #### 3. Write a better daemon from scratch.
 I'm going with this option.  Once I've built this Rusty daemon, it will scale into other projects and requirements.
-
 
 ### Introducing: A Rusty 'PyRQ Scheduler'
 
