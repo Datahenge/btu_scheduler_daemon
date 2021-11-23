@@ -2,7 +2,7 @@
 
 ### Purpose
 
-The purpose of this program is to create a Linux daemon that:
+The purpose of this program is to create a 64-bit Linux binary executable, that run as a daemon.
 
 1. Initializes scheduled tasks (*for now, Python functions*) into a Redis Queue.
 2. Listens for schedule changes over a Unix Domain Socket.

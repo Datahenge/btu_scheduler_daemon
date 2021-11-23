@@ -32,7 +32,6 @@ pub mod config {
 				.expect("Something went wrong reading the file");
 
 			// println!("Here are the contents of the TOML configuration file: {}", file_contents);
-
 			// TODO: Replace with some friendlier error handling, instead of a panic.
 			let config: AppConfig = toml::from_str(&file_contents).unwrap();
 			// println!("{}", config);  // uses the Display trait defined below.
@@ -87,12 +86,14 @@ pub mod config {
 	}	
 }
 
-
 pub mod task_scheduler {
 
-use super::config;
+	use chrono::{DateTime, Utc, Local, TimeZone};
+	use cron::Schedule;
 	use mysql::{PooledConn};
 	use mysql::prelude::Queryable;
+	use std::str::FromStr;
+	use super::config;
 
 	// Deliberately excluding SQL column that don't matter for this program.
 	#[derive(Debug, Clone)]
@@ -144,13 +145,13 @@ use super::config;
 			}).unwrap();
 	
 		if let Some(btu_task_schedule) =  task_schedules.iter().next() {
-			Some(btu_task_schedule.to_owned())
+			Some(btu_task_schedule.to_owned())  // <--- function returns here
 		} else {
 			// Destructure failed. Change to the failure case.
 			println!("Error: Was unable to read the SQL database and find a record for BTU Task Schedule = {}", task_schedule_id);
 			None
 		}       
-	} // end function
+	} // end of 'read_btu_task_schedule'
 
 	// Entry point for building new Redis Queue Jobs.
 	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
@@ -165,12 +166,13 @@ use super::config;
 		depends_on=None, on_success=None, on_failure=None):
 		*/
 
-		// scheduled_time = get_next_scheduled_time(cron_string, use_local_timezone=use_local_timezone)
-
+		let next_runtime = get_next_scheduled_time_utc(&task_schedule.cron_string);
+		println!("This BTU Task should run next at {:#?}", next_runtime);
 
 		/*
 		// Set result_ttl to -1, as jobs scheduled via cron are periodic ones.
    		// Otherwise the job would expire after 500 sec.
+
    		job = self._create_job(func, args=args, kwargs=kwargs, commit=False,
 						  result_ttl=-1, id=id, queue_name=queue_name,
 						  description=description, timeout=timeout, meta=meta, depends_on=depends_on,
@@ -186,6 +188,7 @@ use super::config;
    		return job
 		*/
 	}
+
 
 	/*
 	
@@ -220,9 +223,10 @@ use super::config;
 	}
 	*/
 
+	fn get_next_scheduled_time_utc(cron_expression_string: &str) -> Option<DateTime<Utc>> {
+    	// Based on a cron string, what is the next, scheduled Datetime?
+		let schedule = Schedule::from_str(cron_expression_string).unwrap();
+		schedule.upcoming(Utc).take(10).next()
 
-	// sudo systemctl start rqscheduler.service
-	// sudo systemctl status rqscheduler.service
-	// sudo systemctl enable rqscheduler.service
-
+	}
 }

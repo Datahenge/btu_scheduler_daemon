@@ -29,7 +29,7 @@ use pyrq_scheduler::task_scheduler;
 // Brian's GitHub Issue about this:
 // https://github.com/aeshirey/aeshirey.github.io/issues/5
 
-fn handle_client(stream: UnixStream, queue: &mut VecDeque<String>) {
+fn handle_socket_client(stream: UnixStream, queue: &mut VecDeque<String>) {
     let stream = BufReader::new(stream);
     for line in stream.lines() {
         let task_schedule_id = line.unwrap();
@@ -44,15 +44,16 @@ fn queue_full_refill(queue: &mut VecDeque<String>) ->  Result<u32> {
         See also: https://docs.rs/mysql/21.0.2/mysql/index.html
     */
 
-    // Create a MySQL connection from the Global Config (TOML)
-    // Syntax is getting a bit crazy, but here's the gist.
-    // 1. Get a lock.  This yields a LockResult.
-    // 2. Unwrap that LockResult, to reveal a MutexGuard.
-    // 3. We deference that MutexGuard, which yields an owned AppConfig.
-    // 4. There's no need to "move" AppConfig into 'get_mysql_conn()'.  It just needs a reference.  So use '&'
-    let mut conn = config::get_mysql_conn(&*GLOBAL_CONFIG.lock().unwrap())?;
-    let mut rows_added: u32 = 0;
+    /*  The syntax gets a bit wild below.  So here is the gist:
+        Goal: We want to read the GLOBAL_CONFIG struct, which contains MySQL connection configuration data.
+            1. Get a lock for GLOBALC_CONFIG. This yields a LockResult type.
+            2. Unwrap that LockResult, to reveal a MutexGuard.
+            3. We deference that MutexGuard, which yields an owned AppConfig.
+            4. But there's no need to "move" AppConfig into 'get_mysql_conn()'.  We just needs a reference.  So use prefix '&'
+    */
 
+    let mut rows_added: u32 = 0;
+    let mut conn = config::get_mysql_conn(&*GLOBAL_CONFIG.lock().unwrap())?;
     conn.query_iter("SELECT `name` FROM `tabBTU Task Schedule` ORDER BY name")
     .unwrap()
     .for_each(|row| {
@@ -183,16 +184,16 @@ fn main() {
             .expect(&format!("ERROR: Could not remove file '{}'", socket_path.to_string_lossy()));
     }
 
+    // 3. Listen for incoming client traffic on Unix Domain Socket
     let listener = UnixListener::bind("/tmp/pyrq_scheduler.sock").unwrap();
     println!("{} Listening for inbound traffic on 'pyrq_scheduler.sock'", checkmark_emoji);
-
     for stream in listener.incoming() {
         let counter3 = Arc::clone(&queue_counter);
         match stream {
             Ok(stream) => {
                 thread::spawn(move || {
                     if let Ok(mut unlocked_queue) = counter3.lock() {
-                        handle_client(stream, &mut *unlocked_queue); // pushes Socket Client's data into internal queue.
+                        handle_socket_client(stream, &mut *unlocked_queue); // pushes Socket Client's data into internal queue.
                     }  // end of locked section.
                     // thread::sleep(Duration::from_millis(1250));  // Yield control to another thread.
                 });
