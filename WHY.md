@@ -63,17 +63,17 @@ What if I forked the Python RQ Scheduler, and created an alternate version?
 
 ##### Challenges:
 
-* Python packaging and deployment sucks.  My fellow ERPNext enthusiasts can install BTU.  But asking them to install and daemonize another Python package?  Feels like that's full of pitfalls.
+* Python packaging and deployment sucks (imho).  I'm confident my fellow ERPNext enthusiasts can install the Frappe BTU application.  But asking them to *also* install and daemonize another Python package?  That feels like that's full of pitfalls.
 * Python daemons can confuse users, if you want them to leverage Virtual Environments (*and you probably do/should*)
 * Python is great for scripting.  But time after time, I've found it lacking when it comes to hardened, industrial strength solutions.
 
 #### 3. Write a better daemon from scratch.
-I'm going with this option.  Once I've built this Rusty daemon, it will scale into other projects and requirements.
+I'm went this with this option.  Write a stable and safe Linux application using the Rust Programming Language, designed to be used as a daaemon.
 
-### Introducing: A Rusty 'PyRQ Scheduler'
+### Introducing: BTU Scheduler Daemon.
 
-Repeating my Purpose from above.  I want to write a daemon that:
+Repeating my Purpose from above.  I'm creating a daemon that:
 
 1. Initializes scheduled tasks into a Python Redis Queue.
 2. Listen for schedule changes over a Unix Domain Socket.
-3. Periodically rebuilds the schedule from scratch (e.g. Every Hour)
+3. Periodically rebuilds the schedule from scratch (e.g. N Minutes)
