@@ -1,4 +1,4 @@
-## Rusty PyRQ Scheduler
+## BTU Scheduler Daemon
 
 ### Purpose
 
