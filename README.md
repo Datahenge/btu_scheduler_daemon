@@ -17,11 +17,11 @@ This daemon isn't really useful, unless you've installed its companion Frappe ap
 ### Installation
 This scheduler is *not* a Python application like BTU.  It's a 64-bit Linux binary executable (created using [The Rust Programming Language](https://www.rust-lang.org/)).
 
-1. Download the latest version from Releases.
+1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).
 2. Save this executable somewhere on your Frappe web server.  A good place is your home directory, or the Frappe user's home directory.
 
 ### Configuration
-Wherever you install it, you'll need a co-located *hidden* configuration file named `.btu_scheduler.toml`.  A sample is shown below:
+Wherever you install it, you'll need a co-located *hidden* configuration file named `.btu_scheduler.toml`.  This file contains connection information for MYSQL, and some frequency parameters.  A sample is shown below:
 
 ```toml
 # This is the TOML configuration file for the BTU Scheduler Daemon
