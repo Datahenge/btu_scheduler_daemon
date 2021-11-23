@@ -2,9 +2,9 @@
 
 ### Purpose
 
-The purpose of this program is to create a 64-bit Linux binary executable, that runs as a daemon.
+The purpose of this program is to create a background daemon that:
 
-1. Initializes scheduled tasks (*for now, Python functions*) into a Redis Queue.
+1. Initializes scheduled tasks (*for now, Python functions living in Frappe and ERPNext*) into a Redis Queue.
 2. Listens for schedule changes over a Unix Domain Socket.
 3. Periodically rereads the schedule from the 'system of record' (e.g. every 15 minutes)
 
