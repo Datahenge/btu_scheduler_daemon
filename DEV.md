@@ -17,7 +17,8 @@ Date and time handling for Rust. It aims to be a feature-complete superset of th
 #### cron
 https://docs.rs/cron
 
-I am contemptlating using [cron-clock](https://crates.io/crates/cron_clock/0.8.0) instead.  This is a fork of `cron`, and uses the standard crontab(5) format.
+This creates provides 7-element cron parsing functionality.  I had to add a bit of extra logic to my library, to transform 5-6 element cron expressions into 7 elements.
+
 
 #### mysql
 https://docs.rs/mysql
