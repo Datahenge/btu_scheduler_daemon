@@ -12,6 +12,8 @@ https://doc.rust-lang.org/book/ch16-03-shared-state.html
 
 
 ### Threads
+This is a multi-threaded, concurrent application.  Note that it is **not** an *async* application.
+
 #### Main Thread: Unix Domain Socket listener
 
 * This process binds its socket to a known location and accepts incoming  connection requests from clients. 
