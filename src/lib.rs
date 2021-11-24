@@ -34,12 +34,15 @@ pub mod config {
 		mysql_port: Option<u32>,
 		mysql_database: String,
 		pub rq_host: String,
-		pub rq_port: u32
+		pub rq_port: u32,
+		pub scheduler_polling_interval: u64
 	}
 
 	impl AppConfig {
 		pub fn new_from_toml_string(any_string: &str) -> Result<AppConfig, ConfigError> {
-
+			// Dev Notes: Rust + toml accomplish some fancy work here.  First, the raw string is converted to a TOML object.
+			// Next, that TOML object is mapped 1:1 with the struct, and all elemnets are populated.
+			// One reason this is possible?  The TOML specification has the concepts of strings, integers, and nulls.  :)
 			match toml::from_str(&any_string) {
 				Ok(app_config) => {
 					Ok(app_config)
@@ -48,7 +51,6 @@ pub mod config {
 					return Err(ConfigError::ConfigLoad { source: error });
 				}
 			}
-
 		}
 	}
 
@@ -57,7 +59,7 @@ pub mod config {
 		pub fn new_from_toml_file() -> Result<AppConfig, ConfigError> {
 
 			// Read TOML file, and store values here in this configuration.
-			let file_path = Path::new(".btu_scheduler.toml");
+			let file_path = Path::new("/etc/btu_scheduler/.btu_scheduler.toml");
 			if ! file_path.exists() {
 				return Err(ConfigError::MissingConfigFile);
 			}
@@ -138,6 +140,9 @@ pub mod task_scheduler {
 	use std::str::FromStr;
 	use super::config;
 
+	use redis::{self};
+	use redis::Commands;
+
 	// Deliberately excluding SQL column that don't matter for this program.
 	#[derive(Debug, Clone)]
 	pub struct BtuTaskSchedule {
@@ -187,12 +192,12 @@ pub mod task_scheduler {
 				}
 			}).unwrap();
 	
+		// Get the first BtuTaskSchedule record.
+		// Because 'name' is the table's Primary Key, there can only be one (or zero) values.
 		if let Some(btu_task_schedule) =  task_schedules.iter().next() {
 			Some(btu_task_schedule.to_owned())  // <--- function returns here
 		} else {
-			// Destructure failed. Change to the failure case.
-			println!("Error: Was unable to read the SQL database and find a record for BTU Task Schedule = {}", task_schedule_id);
-			None
+			None  // no such record in the table
 		}       
 	} // end of 'read_btu_task_schedule'
 
@@ -200,8 +205,37 @@ pub mod task_scheduler {
 	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
 		// Entry point for building new Redis Queue Jobs.
 
+		/*
+			In the Python 'rq_scheduler' library, the public entrypoint (from the website) was named a function 'cron()'.
+			That function does a few things, which we'll need to replicate here:
+  
+ 			1. Get the next scheduled execution time.
+			2. Create a 'job' Object
+
+					job = self._create_job(func, args=args, kwargs=kwargs, commit=False,
+										result_ttl=-1, id=id, queue_name=queue_name,
+										description=description, timeout=timeout, meta=meta, depends_on=depends_on,
+										on_success=on_success, on_failure=on_failure)
+
+					job.meta['cron_string'] = cron_string
+					job.meta['use_local_timezone'] = use_local_timezone
+
+					if repeat is not None:
+						job.meta['repeat'] = int(repeat)
+
+					job.save()
+
+				a.
+				b.
+				c.
+				d.
+			3. Adds a Redis key: self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
+
+		
+		*/
+
 		// println!("{}", app_config);
-		println!("Okay, I have all the task data for {}.  Now I need to create an RQ schedule from it.", task_schedule.id);
+		// println!("Okay, I have all the task data for {}.  Now I need to create an RQ schedule from it.", task_schedule.id);
 
 		/* Variables needed:
 		cron_string, func, args=None, kwargs=None, repeat=None,
@@ -209,14 +243,14 @@ pub mod task_scheduler {
 		depends_on=None, on_success=None, on_failure=None):
 		*/
 
-		let next_runtime = get_next_scheduled_time_utc(&task_schedule.cron_string);
+		let next_runtime = cron_to_next_scheduled_time_utc(&task_schedule.cron_string);
 		if next_runtime.is_none() {
-			println!("Cannot determine Next Runtime for this Task.");
+			println!("ERROR: Cannot calculate the next Next Runtime for Task {}", &task_schedule.id);
 			()
 		}
 	
-		println!("This BTU Task should run next at {:#?}", next_runtime.unwrap());
-		println!("Establishing a connection to Redis RQ database on host {}, port {}", app_config.rq_host, app_config.rq_port);
+		// println!("This BTU Task should next execute at: {:#?}", next_runtime.unwrap());
+		println!("TODO: Establish a connection to Redis RQ database on host {}, port {}", app_config.rq_host, app_config.rq_port);
 		
 		/*
 		// Set result_ttl to -1, as jobs scheduled via cron are periodic ones.
@@ -238,13 +272,45 @@ pub mod task_scheduler {
 		*/
 	}
 
+	pub fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
+		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
+
+		// Developer Notes: Some cleverness in here courtesy of 'rq-scheduler' project.  For this particular key,
+		// the Z-score represents the Unix Timestamp the Job is supposed to execute on.
+		// By fetching ALL the values below a certain threshhold (Timestamp), the program knows precisely which Jobs
+		// to enqueue...
+
+		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
+		
+		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
+		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
+		let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore("rq:scheduler:scheduled_jobs", 0, sched_before_unix_time);
+		if redis_result.is_ok() {
+			println!("Jobs to enqueue: {:?}", redis_result.as_ref().unwrap());
+			redis_result.unwrap()  // return a Vector of Job identifiers
+		}
+		else {
+			Vec::new()
+		}
+	}
+
+	pub fn promote_jobs_to_rq_if_ready(app_config: &config::AppConfig) {
+		// This function is analgous to the 'rq-scheduler' Python function: 'Scheduler.enqueue_jobs()'
+		println!("Checking for jobs that need immediate enqueing into RQ...");
+		
+		let unix_timestamp_now = Utc::now().timestamp();
+		println!("Current Unix Timestamp is '{}'", unix_timestamp_now);
+
+        let jobs_to_enqueue = fetch_jobs_ready_for_rq(app_config, unix_timestamp_now);
+
+		for job in jobs_to_enqueue.iter() {
+			println!("Time to make the donuts! (let's enqueue Redis Job '{}' for immediate execution)", job);
+			// self.enqueue_job(job)
+		}
+	}
 
 	/*
 	
-	REDIS_HOST
-	REDIS_PORT
-	REDIS_DB_NUMBER
-
 	add_task_to_rq(
 		cron_string,                # A cron string (e.g. "0 0 * * 0")
 		func=func,                  # Python function to be queued
@@ -272,7 +338,23 @@ pub mod task_scheduler {
 	}
 	*/
 
-	fn cron_strn_to_cron_str7 (cron_expression_string: &str) -> Result<String, String> {
+	pub fn get_redis_connection(app_config: &config::AppConfig) -> Option<redis::Connection> {
+		// Returns a Redis Connection, or None.
+		let client: redis::Client = redis::Client::open(format!("redis://{}:{}/", app_config.rq_host, app_config.rq_port)).unwrap();
+		if let Ok(result) = client.get_connection() {
+			Some(result)
+		}
+		else {
+			println!("Unable to establish a connection to Redis Server at host {}:{}",
+				app_config.rq_host,
+				app_config.rq_port
+			);
+			None
+		}
+	}
+
+
+	fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, String> {
 		/*
 		Given a cron string of N elements, transform into a cron string of 7 elements.
 
@@ -302,7 +384,8 @@ pub mod task_scheduler {
 		}
 	}
 
-	fn get_next_scheduled_time_utc(cron_expression_string: &str) -> Option<DateTime<Utc>> {
+
+	fn cron_to_next_scheduled_time_utc(cron_expression_string: &str) -> Option<DateTime<Utc>> {
     	/*
 			Based on a cron string, what is the next, scheduled Datetime?
 			Documentation: https://docs.rs/cron/0.9.0/cron
@@ -317,7 +400,7 @@ pub mod task_scheduler {
 				--> Years
 		*/
 
-		match cron_strn_to_cron_str7(cron_expression_string) {
+		match cron_str_to_cron_str7(cron_expression_string) {
 			Ok(cron_string) => {
 
 				// We now have a 7-element cron string.

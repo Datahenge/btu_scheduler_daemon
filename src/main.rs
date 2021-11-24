@@ -21,10 +21,8 @@ use mysql::prelude::*;
 use once_cell::sync::Lazy;
 
 // This Crate
-use pyrq_scheduler::config;
+use pyrq_scheduler::{config, task_scheduler};
 use pyrq_scheduler::config::AppConfig;
-use pyrq_scheduler::task_scheduler;
-
 
 // Brian's GitHub Issue about this:
 // https://github.com/aeshirey/aeshirey.github.io/issues/5
@@ -69,15 +67,12 @@ fn get_datetime_now_string() -> String {
     Local::now().format("%v %r").to_string()
 }
 
-/*
---------
-Global Data
----------
-*/
-
-// Lazy Static of custom struct named 'AppConfig', which is created from a TOML file.
+/* --------
+Global Configuration:
+Purpose: Initialize the application's global configuration.
+Dev Note:  We create a Lazy Static, using a custom struct 'AppConfig', which was populated from a TOML file.---------
+   -------- */
 static GLOBAL_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
-
     match AppConfig::new_from_toml_file() {
         Ok(app_config) => {
             Mutex::new(app_config)
@@ -90,14 +85,27 @@ static GLOBAL_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
 });
 
 fn main() {
-    // Load configuration from a TOML file.
-    
-    // Globals:
-    let mut handles: Vec<JoinHandle<()>> = Vec::with_capacity(2);  // I want 2 additional threads at most.
-    let id_queue: VecDeque<String> = VecDeque::new();
-    let queue_counter = Arc::new(Mutex::new(id_queue));  // NOTE: performs a "move" of id_queue into the Arc+Mutex.
-    let max_seconds_between_updates: u32 = GLOBAL_CONFIG.lock().unwrap().max_seconds_between_updates;  // Determines how often the internal queue will "auto-repopulate" with foo, bar, and baz.
+    // Variables for for main()
     let checkmark_emoji = '\u{2713}';
+
+    let mut handles: Vec<JoinHandle<()>> = Vec::with_capacity(3);  // We need 3 additional threads, besides the main thread.
+    let id_queue: VecDeque<String> = VecDeque::new();  // an internal 'queue' containing BTU Task Schedule identifiers
+    let queue_counter = Arc::new(Mutex::new(id_queue));  // Dev Note: this line "moves" the 'id_queue' into the Arc+Mutex.
+
+    // Interval at which 'Next Execution Times' are examined, which may trigger RQ inserts.
+    // Recommend a value of no-more-than 60 seconds.  Otherwise you risk missing a Cron Datetime.
+    let scheduler_polling_interval: u64 =  GLOBAL_CONFIG.lock().unwrap().scheduler_polling_interval;  
+
+    // Determines how often the internal queue receives a "full-refresh" of BTU Task Schedules from the MySQL database.
+    // Suggested value is 60 minutes (3600 seconds)
+    let max_seconds_between_updates: u32 = GLOBAL_CONFIG.lock().unwrap().max_seconds_between_updates;  
+    
+    // Sanity check.  If we cannot make a connection to Redis RQ, don't even bother continuing.
+    if task_scheduler::get_redis_connection(&GLOBAL_CONFIG.lock().unwrap()).is_none() {
+        println!("Cannot initialize daemon without Redis RQ connection; closing now.");
+        std::process::exit(1);    
+    }
+
     // ----------------
     // Thread #1:  Read FIFO values from internal database, and send to Redis Queue Database.
     // ----------------
@@ -120,7 +128,7 @@ fn main() {
                         let _foo = task_scheduler::add_task_schedule_to_rq(&*GLOBAL_CONFIG.lock().unwrap(), &btu_task_schedule);
                     } else {
                         // Destructure failed. Change to the failure case.
-                        println!("Error: Was unable to read the SQL database and find a record for BTU Task Schedule = {}", next_task_schedule_id);
+                        println!("Error: Was unable to read the SQL database and find a record for BTU Task Schedule = '{}'", next_task_schedule_id);
                     }                              
                     // println!("{} values remain in internal queue.", (*unlocked_queue).len());
                 }
@@ -142,7 +150,7 @@ fn main() {
             let elapsed_seconds = stopwatch.elapsed().as_secs();  // calculate elapsed seconds since last Queue Repopulate
 
             // Check if enough time has passed.
-            if elapsed_seconds > max_seconds_between_updates.into() {  // The 'into()' handles conversion to u64
+            if elapsed_seconds > max_seconds_between_updates.into() {  // Dev Note: The 'into()' handles conversion to u64
                 if let Ok(mut unlocked_queue) = counter2.lock() {
                     // Achieved a lock.
                     println!("{} seconds have elapsed.  Time to fill up the queue!", elapsed_seconds);                    
@@ -162,8 +170,29 @@ fn main() {
     });
     handles.push(thread_handle_2);
 
+
     // ----------------
-    // Main Thread is a Unix Domain Socket listener.
+    // Thread #3:  Enqueue Tasks into RQ
+    //
+    // This is the fundamental thread that reviews the "Next Execution Time" for every BTU Task Schedule.
+    // And if that datetime has past?  It converts the BTU Task into an RQ Job.  And places in RQ's "Execute This Immediately" queue.
+    // ----------------
+
+    // let counter3 = Arc::clone(&queue_counter);
+    let thread_handle_3 = thread::spawn(move || {  // need this 'move' to own variable 'scheduler_polling_interval'
+
+        loop {
+            let stopwatch: Instant = Instant::now();
+            task_scheduler::promote_jobs_to_rq_if_ready(&GLOBAL_CONFIG.lock().unwrap());
+            let elapsed_seconds = stopwatch.elapsed().as_secs();  // time just spent working on RQ database.
+            // Subtract the Time Elapsed from the desired Wait Time.  This is the remaining time this thread should sleep.
+            thread::sleep(Duration::from_secs(scheduler_polling_interval - elapsed_seconds)); // wait N seconds before trying again.
+        }
+    });
+    handles.push(thread_handle_3);
+
+    // ----------------
+    // Main Thread:  a Unix Domain Socket listener.
     // ----------------
 
     println!("-------------------------------------");
