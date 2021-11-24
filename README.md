@@ -8,7 +8,7 @@ The purpose of this program is to create a background daemon that:
 2. Listens for schedule changes over a Unix Domain Socket.
 3. Periodically rereads the schedule from the 'system of record' (e.g. every 15 minutes)
 
-### Why?
+### Why did I make this?
 Read [here](WHY.md) for more about why I needed to create this application.
 
 ### Prerequisites

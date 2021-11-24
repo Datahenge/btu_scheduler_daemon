@@ -6,11 +6,11 @@ I needed various [Frappe](https://github.com/frappe/frappe) and [ERPNext](https:
 
 1. Periodically, based on a schedule.
 2. Automatically, via worker threads on the Linux server.
-3. With confidence, regardless of whether web servers are online, or not.
-4. Allow website users to configure and update both Schedules and Tasks, in real time, and act on those changes immediately.
-5. Capture the results of the scheduled tasks in a Log table, viewable on the website.
+3. With Confidence.  Regardless of whether web servers are online, or not.
+4. Allow website users to configure and update both Schedules and Tasks in real time.  And be confident the Scheduler makes the changes immediately.
+5. Capture *all* the results of a Scheduled Task in a human-readable Log table, viewable on the Frappe app's website.
 
-It was the latter 3 requirements that convinced me the out-of-the-box `Scheduled Job Types` would never work.  I needed to write my own applications.
+It was the latter 3 requirements that convinced me the out-of-the-box `Scheduled Job Types` (*Frappe Core v13*) would never work for me.  I would need to write my own solution.
 
 ### What Code?  What Schedules?
 
@@ -40,9 +40,11 @@ The challenge with RQ Scheduler is that it's mostly a **passive** application:
 * RQ Scheduler needs "*something*" to feed it the initial schedule data, which it writes to RQ.
 * RQ Scheduler needs "*something*" to continuously communicate with it: creating, updating, and deleting schedules.
 
-Maybe the Redis Queue persisted data to an RDB file.  Maybe not.  I need some guarantees that no matter what, these Tasks are running, exactly per their definition in the MySQL tables.
+Even if we assume the data in Redis Queue was persisted data to an RDB file.  Are we *certain* it's 100% synchronized with the current values in the SQL table `tabBTU Task Schedule`?  Probably not.
 
-But how?
+Yet when it comes to ERP automation, we could *really* use some guarantees or safety nets.  One of the fundamental reasons for automation is taking a more hands-off approach.
+
+So how can we be confident that Tasks are *always* being loaded, reloaded, scheduled, and executed?
 
 #### Problem #2:  Cron expressed as Coordinated Universal Time (UTC)
 RQ Scheduler and RQ expect that `cron` expressions are written per UTC.  From a system perspective, this is fantastic.  UTC is a very reliable way of both storing datetime values.  But also running them at precisely the correct moment.
