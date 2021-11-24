@@ -5,7 +5,7 @@
 The purpose of this program is to create a background daemon that:
 
 1. Stores scheduled tasks (*for now, Python functions living in Frappe and ERPNext*) as RQ Jobs in a Redis queue database.
-2. Listens on a Unix Domain Socket for schedule updates from web clients.
+2. Listens on a Unix Domain Socket for schedule updates sent from web servers (*and thus, indirectly from web clients*)
 3. Periodically (e.g. every 15 minutes) performs a "full-refresh" of the entire BTU Task Schedule data into RQ.
 4. Very importantly, **enqueues** RQ jobs into the correct queues, at the correct times, based on the Schedules.  (*Redis Queue would be pretty boring without something to populate its queues; this is one such thing.)
 
