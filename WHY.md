@@ -29,6 +29,8 @@ While helpful, the BTU application alone doesn't solve the entire problem.  The 
 
 Initially, the third party [RQ Scheduler](https://github.com/rq/rq-scheduler) application was a satisfactory solution.  However, it had a few gaps.
 
+#### Problem #1:  Automatation and Persistency
+
 Assume you reboot your Linux server.  Whether via [Supervisor](http://supervisord.org/) or [systemd](https://en.wikipedia.org/wiki/Systemd), various applications are launched: MySQL, Redis, the Frappe Web Server, Python RQ, and the RQ Scheduler.  But what happens to those scheduled Tasks?
 
 *Probably nothing at all.*
@@ -41,6 +43,32 @@ The challenge with RQ Scheduler is that it's mostly a **passive** application:
 Maybe the Redis Queue persisted data to an RDB file.  Maybe not.  I need some guarantees that no matter what, these Tasks are running, exactly per their definition in the MySQL tables.
 
 But how?
+
+#### Problem #2:  Cron as Coordinated Universal Time (UTC)
+RQ Scheduler and RQ expect that `cron` expressions are written per UTC.  From a system perspective, this is fantastic.  UTC is a very reliable way of both storing datetime values.  But also running them at precisely the correct moment.
+
+However, from a user perspective...writing cron in UTC is awful.
+
+Assume you have a Schedule that must execute at 7:00PM local time, the entire year.  To accomplish this you must:
+
+1.  Initially write your Schedules with 1 cron expression, based on the delta between local time and UTC.
+2.  You set a reminder to login the morning after Daylight Savings Time begins.
+3.  You adjust your Schedule to a *different* cron expression, based on the **new** delta betwen your local time, and UTC.
+
+Repeat this process for *every other Schedule you have*.
+
+😬
+
+A better idea is this:
+
+* Users write their `cron` expressions against a local Time Zone.
+* Each of those `cron` expressions evaluates into an array of *multiple* UTC cron expressions:
+  * Before DST
+  * After DST
+  * (many more possibilities)
+* The scheduler treats the 1 User Schedule as being **many** system-level Queue Schedules, for the same Task.
+
+This would work great.  But the code to perform this has to be written *somewhere* ...
 
 ### Automation Options
 
