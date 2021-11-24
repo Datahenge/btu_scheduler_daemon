@@ -54,6 +54,11 @@ pub struct AppConfig {
 }
 ```
 
+#### thiserror
+https://docs.rs/thiserror
+
+A lovely crate that helps coerce between different Error types.  This allows you to return a "unified" Error type of enum, which encapsulates errors from other crate libraries (plus your own), and also allows you to annotate them.
+
 #### toml
 https://docs.rs/toml
 
