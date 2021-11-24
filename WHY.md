@@ -44,7 +44,7 @@ Maybe the Redis Queue persisted data to an RDB file.  Maybe not.  I need some gu
 
 But how?
 
-#### Problem #2:  Cron as Coordinated Universal Time (UTC)
+#### Problem #2:  Cron expressed as Coordinated Universal Time (UTC)
 RQ Scheduler and RQ expect that `cron` expressions are written per UTC.  From a system perspective, this is fantastic.  UTC is a very reliable way of both storing datetime values.  But also running them at precisely the correct moment.
 
 However, from a user perspective...writing cron in UTC is awful.
