@@ -40,9 +40,11 @@ The challenge with RQ Scheduler is that it's mostly a **passive** application:
 * RQ Scheduler needs "*something*" to feed it the initial schedule data, which it writes to RQ.
 * RQ Scheduler needs "*something*" to continuously communicate with it: creating, updating, and deleting schedules.
 
-Maybe the Redis Queue persisted data to an RDB file.  Maybe not.  I need some guarantees that no matter what, these Tasks are running, exactly per their definition in the MySQL tables.
+Even if we assume the data in Redis Queue was persisted data to an RDB file.  Are we *certain* it's 100% synchronized with the current values in the SQL table `tabBTU Task Schedule`?  Probably not.
 
-But how?
+Yet when it comes to ERP automation, we could *really* use some guarantees or safety nets.  One of the fundamental reasons for automation is taking a more hands-off approach.
+
+So how can we be confident that Tasks are *always* being loaded, reloaded, scheduled, and executed?
 
 #### Problem #2:  Cron expressed as Coordinated Universal Time (UTC)
 RQ Scheduler and RQ expect that `cron` expressions are written per UTC.  From a system perspective, this is fantastic.  UTC is a very reliable way of both storing datetime values.  But also running them at precisely the correct moment.
