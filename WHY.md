@@ -10,7 +10,7 @@ I needed various [Frappe](https://github.com/frappe/frappe) and [ERPNext](https:
 4. Allow website users to configure and update both Schedules and Tasks in real time.  And be confident the Scheduler makes the changes immediately.
 5. Capture *all* the results of a Scheduled Tasks in a human-readble Log table, viewable on the Frappe app's website.
 
-It was the latter 3 requirements that convinced me the out-of-the-box `Scheduled Job Types` (Frapp v13) would never work.  I needed to write my own applications.
+It was the latter 3 requirements that convinced me the out-of-the-box `Scheduled Job Types` (*Frappe Core v13*) would never work for me.  I would need to write my own solution.
 
 ### What Code?  What Schedules?
 
