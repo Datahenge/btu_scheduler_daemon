@@ -49,10 +49,10 @@ I could try hacking the Frappe core library, and teach its Web Server to initial
 
 ##### Challenges:
 
-1. To make the BTU App independent and friendly, it must run on an **unmodified** Frappe Framework.
+1. To make the BTU App independent and user-friendly, it should run on an **unmodified**, out-of-the-box Frappe Framework.  Not one of my forks.
 2. Editing the Frappe Framework to do things on boot?  Easier said than done.  The web server can have *multiple* Gunicorn Workers.  But the RQ only needs a *one-time* initialization.
-   1. What about `hooks.py`?  Writing *anything* in that file is problematic.  A `hooks.py` might be processed *hundreds* of times an hour by the Frappe framework.  It's a very messy feature.
-3. I want my BTU Tasks to execute on-schedule, *regardless* of whether the ERPNext Web Server is running.
+3. What about `hooks.py`?  Well, writing *anything* that file is problematic.  Each `hooks.py` might be processed *hundreds* of times an hour by the Frappe framework.  It's very unpredictable.  And we only want the Task Schedules synchronized *once*.
+4. I'd like to be confident that Tasks are running on-schedule, *regardless* of whether the ERPNext Web Servers are running.
 
 #### 2. Modify RQ-Scheduler.
 What if I forked the Python RQ Scheduler, and created an alternate version?
@@ -63,17 +63,17 @@ What if I forked the Python RQ Scheduler, and created an alternate version?
 
 ##### Challenges:
 
-* Python packaging and deployment sucks.  My fellow ERPNext enthusiasts can install BTU.  But asking them to install and daemonize another Python package?  Feels like that's full of pitfalls.
+* Python packaging and deployment sucks (imho).  I'm confident my fellow ERPNext enthusiasts can install the Frappe BTU application.  But asking them to *also* install and daemonize another Python package?  That feels like that's full of pitfalls.
 * Python daemons can confuse users, if you want them to leverage Virtual Environments (*and you probably do/should*)
 * Python is great for scripting.  But time after time, I've found it lacking when it comes to hardened, industrial strength solutions.
 
 #### 3. Write a better daemon from scratch.
-I'm going with this option.  Once I've built this Rusty daemon, it will scale into other projects and requirements.
+I'm went this with this option.  Write a stable and safe Linux application using the Rust Programming Language, designed to be used as a daaemon.
 
-### Introducing: A Rusty 'PyRQ Scheduler'
+### Introducing: BTU Scheduler Daemon.
 
-Repeating my Purpose from above.  I want to write a daemon that:
+Repeating my Purpose from above.  I'm creating a daemon that:
 
 1. Initializes scheduled tasks into a Python Redis Queue.
 2. Listen for schedule changes over a Unix Domain Socket.
-3. Periodically rebuilds the schedule from scratch (e.g. Every Hour)
+3. Periodically rebuilds the schedule from scratch (e.g. N Minutes)
