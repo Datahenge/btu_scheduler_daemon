@@ -6,7 +6,7 @@ I needed various [Frappe](https://github.com/frappe/frappe) and [ERPNext](https:
 
 1. Periodically, based on a schedule.
 2. Automatically, via worker threads on the Linux server.
-3. With confidence, regardless of whether web servers are online, or not.
+3. With Confidence.  Regardless of whether web servers are online, or not.
 4. Allow website users to configure and update both Schedules and Tasks, in real time, and act on those changes immediately.
 5. Capture the results of the scheduled tasks in a Log table, viewable on the website.
 
