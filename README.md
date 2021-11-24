@@ -18,7 +18,7 @@ Read [here](WHY.md) for more about why I needed to create this application.
 * This daemon isn't particularly useful without its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
 
 ### Installation
-This scheduler is *not* a Python application like BTU.  It's a 64-bit Linux binary executable (created using [The Rust Programming Language](https://www.rust-lang.org/)).
+Frappe Framework users, please note: This scheduler is *not* a Python application.  It is a native Linux application: a 64-bit binary executable.  The source code was written in ([The Rust Programming Language](https://www.rust-lang.org/)).
 
 1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).
 2. Save this executable somewhere on your Frappe web server (*typical locations for third-party Linux programs are `/usr/local/bin`*)
