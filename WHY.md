@@ -8,7 +8,7 @@ I needed various [Frappe](https://github.com/frappe/frappe) and [ERPNext](https:
 2. Automatically, via worker threads on the Linux server.
 3. With Confidence.  Regardless of whether web servers are online, or not.
 4. Allow website users to configure and update both Schedules and Tasks in real time.  And be confident the Scheduler makes the changes immediately.
-5. Capture *all* the results of a Scheduled Tasks in a human-readble Log table, viewable on the Frappe app's website.
+5. Capture *all* the results of a Scheduled Task in a human-readable Log table, viewable on the Frappe app's website.
 
 It was the latter 3 requirements that convinced me the out-of-the-box `Scheduled Job Types` (*Frappe Core v13*) would never work for me.  I would need to write my own solution.
 
