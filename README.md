@@ -17,14 +17,14 @@ Read [here](WHY.md) for more about why I needed to create this application.
 * Linux 64bit operating system.  I tested this with Debian 11 Bullseye.
 * This daemon isn't particularly useful without its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
 
-### Installation
-Frappe Framework users, please note: This scheduler is *not* a Python application.  It is a native Linux application: a 64-bit binary executable.  The source code was written in ([The Rust Programming Language](https://www.rust-lang.org/)).
+(*Note to Frappe Framework users: This scheduler is -not- a Python application.  It is a native Linux application: a 64-bit binary executable.  The source code was written in [The Rust Programming Language](https://www.rust-lang.org/).  This application coexists with the Frappe web server)*
 
+### Installation
 1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).
 2. Save this executable somewhere on your Frappe web server (*typical locations for third-party Linux programs are `/usr/local/bin`*)
 
 ### Configuration
-Regardless of where you save the executable, you need to save your configuration file in a known location:
+Regardless of where you save the executable, you must create and maintain a TOML configuration file here:
 ```
 /etc/btu_scheduler/.btu_scheduler.toml
 ```
