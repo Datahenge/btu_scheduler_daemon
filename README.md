@@ -35,21 +35,29 @@ Regardless of where you save the executable, you must create and maintain a TOML
 # This is the TOML configuration file for the BTU Scheduler Daemon
 name = "BTU Schedule Daemon"
 max_seconds_between_updates = 90
+scheduler_polling_interval=60
+
 mysql_user = "root"
 mysql_password = "some_password"
 mysql_host = "localhost"
 mysql_port = 3313
 mysql_database = "foo"
+
+rq_host = "127.0.0.1"
+rq_port = 11000
 ```
 
 ### Usage
 #### Testing
-To test the application, you probably want to intially run directly from a shell:
+To test the application, you may want to begin by running manually from a shell:
 ```
+/usr/local/bin/btu_scheduler_daemon
+# or
 ./btu_scheduler_daemon
 ```
 
-To exit, just `CTRL+C`
+The program runs indefinitely (unless it encouters a fatal error)\
+To exit manually, use the keys `CTRL+C`
 
 #### Production or Live environments
 For automatic startup, I recommend creating a **systemd** [service unit file](https://linuxconfig.org/how-to-create-systemd-service-unit-in-linux): `/etc/systemd/system/btu_scheduler.service`
