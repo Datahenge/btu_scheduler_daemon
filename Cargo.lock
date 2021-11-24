@@ -912,6 +912,7 @@ dependencies = [
  "once_cell",
  "redis",
  "serde",
+ "thiserror",
  "toml",
 ]
 

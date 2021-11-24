@@ -77,7 +77,16 @@ Global Data
 
 // Lazy Static of custom struct named 'AppConfig', which is created from a TOML file.
 static GLOBAL_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
-    Mutex::new(AppConfig::new_from_toml_file())
+
+    match AppConfig::new_from_toml_file() {
+        Ok(app_config) => {
+            Mutex::new(app_config)
+        }
+        Err(error) => {
+            println!("Error while creating AppConfig from TOML configuration file.\n{}", error);
+            std::process::exit(1);
+        }
+    }
 });
 
 fn main() {

@@ -1,12 +1,29 @@
 #![forbid(unsafe_code)]
-pub mod config {
 
-	use std::fmt;
-	use std::fs;
+pub mod error {
+	use toml::de::Error		as TomlError;
+	use thiserror::Error	as ThisError;
+
+	#[derive(ThisError, Debug)]
+	pub enum ConfigError {
+		#[error("Could not deserialize TOML into a Rust object.\n    {source:?}")]
+		ConfigLoad {
+			#[from] 
+			source: TomlError,
+		},
+		#[error("Cannot find the TOML configuration file on disk.")]
+		MissingConfigFile,
+	}
+}
+
+pub mod config {
+	
+	use crate::error::ConfigError;
+	use std::{fmt, fs};
 	use std::path::Path;
 	use serde::{Deserialize};  // Also there is Serialize
-	use mysql::*;
-
+	// use mysql::*;			// DO NOT import mysql like this, because it overrides the default Error type.
+	use mysql::{Opts, Pool};
 
 	#[derive(Deserialize)]
 	pub struct AppConfig {
@@ -15,44 +32,70 @@ pub mod config {
 		mysql_password: String,
 		mysql_host: String,
 		mysql_port: Option<u32>,
-		mysql_database: String
+		mysql_database: String,
+		pub rq_host: String,
+		pub rq_port: u32
+	}
+
+	impl AppConfig {
+		pub fn new_from_toml_string(any_string: &str) -> Result<AppConfig, ConfigError> {
+
+			match toml::from_str(&any_string) {
+				Ok(app_config) => {
+					Ok(app_config)
+				},
+				Err(error) => {
+					return Err(ConfigError::ConfigLoad { source: error });
+				}
+			}
+
+		}
 	}
 
 	impl AppConfig {
     	// Associated function signature; `Self` refers to the implementor type.
-		pub fn new_from_toml_file() -> AppConfig {
+		pub fn new_from_toml_file() -> Result<AppConfig, ConfigError> {
 
 			// Read TOML file, and store values here in this configuration.
-			let file_path = Path::new(".py_sched.toml");
+			let file_path = Path::new(".btu_scheduler.toml");
 			if ! file_path.exists() {
-				panic!("Cannot find expected file on disk: '.py_sched.toml'");
+				return Err(ConfigError::MissingConfigFile);
 			}
 
 			let file_contents: String = fs::read_to_string(file_path)
-				.expect("Something went wrong reading the file");
-
+				.expect("Something went wrong while reading the TOML file.");
 			// println!("Here are the contents of the TOML configuration file: {}", file_contents);
-			// TODO: Replace with some friendlier error handling, instead of a panic.
-			let config: AppConfig = toml::from_str(&file_contents).unwrap();
+
+			let result = AppConfig::new_from_toml_string(&file_contents);
+			result
 			// println!("{}", config);  // uses the Display trait defined below.
-			config
 		}
 	}
 
 	impl fmt::Display for AppConfig {
 		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-			write!(f, "Application Configuration:\nSeconds Between Refresh: {}\nMySQL:\n  Username: {}\n  Password: {}\n  Host: {}.{:?}\n  Database: {}\n",
+			write!(f, "Application Configuration:\n
+Seconds Between Refresh: {}\n
+MySQL:\n
+  Username: {}\n
+  Password: {}\n
+  Host: {}.{:?}\n
+  Database: {}\n
+RQ Host: {}\n
+RQ Port: {}",
 		  		self.max_seconds_between_updates,
 				self.mysql_user,
 				"********",
 				self.mysql_host,
 				self.mysql_port.unwrap_or(3306),
-				self.mysql_database
+				self.mysql_database,
+				self.rq_host,
+				self.rq_port
 			)
 		}
 	}
 
-	pub fn get_mysql_conn(config: &AppConfig) -> Result<mysql::PooledConn> {
+	pub fn get_mysql_conn(config: &AppConfig) -> Result<mysql::PooledConn, mysql::error::Error> {
 		/* The purpose of this function is to:
 			1. Create a formatted URL of MySQL connection arguments.
 			2. Using that URL, create an activate MySQL connection object.
@@ -64,12 +107,12 @@ pub mod config {
 			port=config.mysql_port.unwrap_or(3306),  // default port for MySQL databases.
 			database=config.mysql_database);
 
-		let opts = Opts::from_url(&url)?;
-		let pool = Pool::new(opts)?;
+		let opts = mysql::Opts::from_url(&url)?;
+		let pool = mysql::Pool::new(opts)?;
 		pool.get_conn()
 	}
 
-	pub fn get_mysql_pool(config: &AppConfig) -> Result<mysql::Pool> {
+	pub fn get_mysql_pool(config: &AppConfig) -> Result<mysql::Pool, mysql::error::Error> {
 		/* The purpose of this function is to:
 			1. Create a formatted URL of MySQL connection arguments.
 			2. Using that URL, create an activate MySQL connection object.
@@ -88,7 +131,7 @@ pub mod config {
 
 pub mod task_scheduler {
 
-	use chrono::{DateTime, Utc, Local, TimeZone};
+	use chrono::{DateTime, Utc}; // See also: Local, TimeZone
 	use cron::Schedule;
 	use mysql::{PooledConn};
 	use mysql::prelude::Queryable;
@@ -167,8 +210,14 @@ pub mod task_scheduler {
 		*/
 
 		let next_runtime = get_next_scheduled_time_utc(&task_schedule.cron_string);
-		println!("This BTU Task should run next at {:#?}", next_runtime);
-
+		if next_runtime.is_none() {
+			println!("Cannot determine Next Runtime for this Task.");
+			()
+		}
+	
+		println!("This BTU Task should run next at {:#?}", next_runtime.unwrap());
+		println!("Establishing a connection to Redis RQ database on host {}, port {}", app_config.rq_host, app_config.rq_port);
+		
 		/*
 		// Set result_ttl to -1, as jobs scheduled via cron are periodic ones.
    		// Otherwise the job would expire after 500 sec.
@@ -223,10 +272,69 @@ pub mod task_scheduler {
 	}
 	*/
 
-	fn get_next_scheduled_time_utc(cron_expression_string: &str) -> Option<DateTime<Utc>> {
-    	// Based on a cron string, what is the next, scheduled Datetime?
-		let schedule = Schedule::from_str(cron_expression_string).unwrap();
-		schedule.upcoming(Utc).take(10).next()
+	fn cron_strn_to_cron_str7 (cron_expression_string: &str) -> Result<String, String> {
+		/*
+		Given a cron string of N elements, transform into a cron string of 7 elements.
 
+		Reasoning: There is no universal standard for cron strings.  They could contain 5-7 elements.  However
+		           the 'cron' library expects 7 elements.  This function pads the missing elements.
+		*/
+
+		let iter = cron_expression_string.split_whitespace();
+		let vec: Vec<&str> = iter.collect::<Vec<&str>>();
+
+		match vec.len() {
+			5 =>  {
+				// Prefix with '*' for seconds, and suffix with '*' for years.
+				return Ok(format!("* {} *", cron_expression_string));
+			},
+			6 => {
+				// Assume we're dealing with a cron(5) plus Year.  So prefix '*' for seconds.
+				return Ok(format!("* {}", cron_expression_string));
+			},	
+			7 => {
+				// Cron string already has 7 elements, so pass it back.
+				return Ok(cron_expression_string.to_owned())
+			},
+			_ => {
+				return Err(format!("Cron expression string has {} values", vec.len()));
+			}				
+		}
 	}
+
+	fn get_next_scheduled_time_utc(cron_expression_string: &str) -> Option<DateTime<Utc>> {
+    	/*
+			Based on a cron string, what is the next, scheduled Datetime?
+			Documentation: https://docs.rs/cron/0.9.0/cron
+
+			Note: The 'cron' library expects a 7-element cron string.  Where the additional elements are:
+				--> Seconds
+					Minutes
+					Hours
+					Day of Month
+					Month
+					Day of Week
+				--> Years
+		*/
+
+		match cron_strn_to_cron_str7(cron_expression_string) {
+			Ok(cron_string) => {
+
+				// We now have a 7-element cron string.
+				match Schedule::from_str(&cron_string) {
+					Ok(schedule) => {
+						return schedule.upcoming(Utc).take(10).next();
+					},
+					Err(error) => {
+						println!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_string, error);
+						return None;
+					}
+				}
+			},
+			Err(error) => {
+				println!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_expression_string, error);
+				return None;
+			}
+		}
+	} // end function 'get_next_scheduled_time_utc'
 }
