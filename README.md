@@ -12,7 +12,9 @@ The purpose of this program is to create a background daemon that:
 Read [here](WHY.md) for more about why I needed to create this application.
 
 ### Prerequisites
-This daemon isn't really useful, unless you've installed its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
+
+* Linux 64bit operating system.  I tested this with Debian 11 Bullseye.
+* This daemon isn't particularly useful without its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
 
 ### Installation
 This scheduler is *not* a Python application like BTU.  It's a 64-bit Linux binary executable (created using [The Rust Programming Language](https://www.rust-lang.org/)).
