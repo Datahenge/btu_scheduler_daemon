@@ -56,7 +56,7 @@ To test the application, you may want to begin by running manually from a shell:
 ./btu_scheduler_daemon
 ```
 
-The program runs indefinitely (unless it encouters a fatal error)\
+The program runs indefinitely (unless it encounters a fatal error)\
 To exit manually, use the keys `CTRL+C`
 
 #### Production or Live environments
@@ -67,7 +67,7 @@ Description=BTU Scheduler
 After=network.target
 
 [Service]
-ExecStart=/path_to_file/btu_scheduler_daemon
+ExecStart=/usr/local/bin/btu_scheduler_daemon
 
 [Install]
 WantedBy=multi-user.target
