@@ -4,44 +4,60 @@
 
 The purpose of this program is to create a background daemon that:
 
-1. Initializes scheduled tasks (*for now, Python functions living in Frappe and ERPNext*) into a Redis Queue.
-2. Listens for schedule changes over a Unix Domain Socket.
-3. Periodically rereads the schedule from the 'system of record' (e.g. every 15 minutes)
+1. Stores scheduled tasks (*for now, Python functions living in Frappe and ERPNext*) as RQ Jobs in a Redis queue database.
+2. Listens on a Unix Domain Socket for schedule updates sent from web servers (*and thus, indirectly from web clients*)
+3. Periodically (e.g. every 15 minutes) performs a "full-refresh" of the entire BTU Task Schedule data into RQ.
+4. Very importantly, **enqueues** RQ jobs into the correct queues, at the correct times, based on the Schedules.  (*Redis Queue would be pretty boring without something to populate its queues; this is one such thing.*)
 
 ### Why did I make this?
 Read [here](WHY.md) for more about why I needed to create this application.
 
 ### Prerequisites
-This daemon isn't really useful, unless you've installed its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
+
+* Linux 64bit operating system.  I tested this with Debian 11 Bullseye.
+* This daemon isn't particularly useful without its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
+
+(*Note to Frappe Framework users: This scheduler is -not- a Python application.  It is a native Linux application: a 64-bit binary executable.  The source code was written in [The Rust Programming Language](https://www.rust-lang.org/).  This application coexists with the Frappe web server)*
 
 ### Installation
-This scheduler is *not* a Python application like BTU.  It's a 64-bit Linux binary executable (created using [The Rust Programming Language](https://www.rust-lang.org/)).
-
 1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).
-2. Save this executable somewhere on your Frappe web server.  A good place is your home directory, or the Frappe user's home directory.
+2. Save this executable somewhere on your Frappe web server (*typical locations for third-party Linux programs are `/usr/local/bin`*)
 
 ### Configuration
-Wherever you install it, you'll need a co-located *hidden* configuration file named `.btu_scheduler.toml`.  This file contains connection information for MYSQL, and some frequency parameters.  A sample is shown below:
+Regardless of where you save the executable, you must create and maintain a TOML configuration file here:
+```
+/etc/btu_scheduler/.btu_scheduler.toml
+```
+
+**Note**: This is a hidden file (notice the leading '.' in front of the file name).  I don't believe in security through obfuscation; I may change my mind about this convention.
 
 ```toml
 # This is the TOML configuration file for the BTU Scheduler Daemon
 name = "BTU Schedule Daemon"
 max_seconds_between_updates = 90
+scheduler_polling_interval=60
+
 mysql_user = "root"
 mysql_password = "some_password"
 mysql_host = "localhost"
 mysql_port = 3313
 mysql_database = "foo"
+
+rq_host = "127.0.0.1"
+rq_port = 11000
 ```
 
 ### Usage
 #### Testing
-To test the application, you probably want to intially run directly from a shell:
+To test the application, you may want to begin by running manually from a shell:
 ```
+/usr/local/bin/btu_scheduler_daemon
+# or
 ./btu_scheduler_daemon
 ```
 
-To exit, just `CTRL+C`
+The program runs indefinitely (unless it encounters a fatal error)\
+To exit manually, use the keys `CTRL+C`
 
 #### Production or Live environments
 For automatic startup, I recommend creating a **systemd** [service unit file](https://linuxconfig.org/how-to-create-systemd-service-unit-in-linux): `/etc/systemd/system/btu_scheduler.service`
@@ -51,7 +67,7 @@ Description=BTU Scheduler
 After=network.target
 
 [Service]
-ExecStart=/path_to_file/btu_scheduler_daemon
+ExecStart=/usr/local/bin/btu_scheduler_daemon
 
 [Install]
 WantedBy=multi-user.target
