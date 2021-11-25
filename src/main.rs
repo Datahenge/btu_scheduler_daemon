@@ -71,6 +71,7 @@ fn get_datetime_now_string() -> String {
 Global Configuration:
 Purpose: Initialize the application's global configuration.
 Dev Note:  We create a Lazy Static, using a custom struct 'AppConfig', which was populated from a TOML file.---------
+
    -------- */
 static GLOBAL_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
     match AppConfig::new_from_toml_file() {

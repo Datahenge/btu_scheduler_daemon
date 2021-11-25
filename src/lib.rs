@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod tests;
+pub mod config;
+pub mod btu_cron;
+
 pub mod error {
 	use toml::de::Error		as TomlError;
 	use thiserror::Error	as ThisError;
@@ -14,134 +18,26 @@ pub mod error {
 		#[error("Cannot find the TOML configuration file on disk.")]
 		MissingConfigFile,
 	}
-}
-
-pub mod config {
 	
-	use crate::error::ConfigError;
-	use std::{fmt, fs};
-	use std::path::Path;
-	use serde::{Deserialize};  // Also there is Serialize
-	// use mysql::*;			// DO NOT import mysql like this, because it overrides the default Error type.
-	use mysql::{Opts, Pool};
-
-	#[derive(Deserialize)]
-	pub struct AppConfig {
-		pub max_seconds_between_updates: u32,
-		mysql_user: String,
-		mysql_password: String,
-		mysql_host: String,
-		mysql_port: Option<u32>,
-		mysql_database: String,
-		pub rq_host: String,
-		pub rq_port: u32,
-		pub scheduler_polling_interval: u64
+	#[derive(ThisError, Debug, PartialEq)]
+	pub enum CronError {
+		#[error("Cron expression has the wrong number of elements (should be one of 5, 6, or 7).")]
+		WrongQtyOfElements {
+			found: usize
+		},
 	}
-
-	impl AppConfig {
-		pub fn new_from_toml_string(any_string: &str) -> Result<AppConfig, ConfigError> {
-			// Dev Notes: Rust + toml accomplish some fancy work here.  First, the raw string is converted to a TOML object.
-			// Next, that TOML object is mapped 1:1 with the struct, and all elemnets are populated.
-			// One reason this is possible?  The TOML specification has the concepts of strings, integers, and nulls.  :)
-			match toml::from_str(&any_string) {
-				Ok(app_config) => {
-					Ok(app_config)
-				},
-				Err(error) => {
-					return Err(ConfigError::ConfigLoad { source: error });
-				}
-			}
-		}
-	}
-
-	impl AppConfig {
-    	// Associated function signature; `Self` refers to the implementor type.
-		pub fn new_from_toml_file() -> Result<AppConfig, ConfigError> {
-
-			// Read TOML file, and store values here in this configuration.
-			let file_path = Path::new("/etc/btu_scheduler/.btu_scheduler.toml");
-			if ! file_path.exists() {
-				return Err(ConfigError::MissingConfigFile);
-			}
-
-			let file_contents: String = fs::read_to_string(file_path)
-				.expect("Something went wrong while reading the TOML file.");
-			// println!("Here are the contents of the TOML configuration file: {}", file_contents);
-
-			let result = AppConfig::new_from_toml_string(&file_contents);
-			result
-			// println!("{}", config);  // uses the Display trait defined below.
-		}
-	}
-
-	impl fmt::Display for AppConfig {
-		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-			write!(f, "Application Configuration:\n
-Seconds Between Refresh: {}\n
-MySQL:\n
-  Username: {}\n
-  Password: {}\n
-  Host: {}.{:?}\n
-  Database: {}\n
-RQ Host: {}\n
-RQ Port: {}",
-		  		self.max_seconds_between_updates,
-				self.mysql_user,
-				"********",
-				self.mysql_host,
-				self.mysql_port.unwrap_or(3306),
-				self.mysql_database,
-				self.rq_host,
-				self.rq_port
-			)
-		}
-	}
-
-	pub fn get_mysql_conn(config: &AppConfig) -> Result<mysql::PooledConn, mysql::error::Error> {
-		/* The purpose of this function is to:
-			1. Create a formatted URL of MySQL connection arguments.
-			2. Using that URL, create an activate MySQL connection object.
-		*/
-		let url = format!("mysql://{user}:{password}@{host}:{port}/{database}",
-			user=config.mysql_user,
-			password=config.mysql_password,
-			host=config.mysql_host,
-			port=config.mysql_port.unwrap_or(3306),  // default port for MySQL databases.
-			database=config.mysql_database);
-
-		let opts = mysql::Opts::from_url(&url)?;
-		let pool = mysql::Pool::new(opts)?;
-		pool.get_conn()
-	}
-
-	pub fn get_mysql_pool(config: &AppConfig) -> Result<mysql::Pool, mysql::error::Error> {
-		/* The purpose of this function is to:
-			1. Create a formatted URL of MySQL connection arguments.
-			2. Using that URL, create an activate MySQL connection object.
-		*/
-		let url = format!("mysql://{user}:{password}@{host}:{port}/{database}",
-			user=config.mysql_user,
-			password=config.mysql_password,
-			host=config.mysql_host,
-			port=config.mysql_port.unwrap_or(3306),  // default port for MySQL databases.
-			database=config.mysql_database);
-
-		let opts = Opts::from_url(&url)?;
-		Pool::new(opts)
-	}	
 }
+
 
 pub mod task_scheduler {
 
-	use chrono::{DateTime, Utc}; // See also: Local, TimeZone
-	use cron::Schedule;
-	use mysql::{PooledConn};
+	use chrono::Utc; // See also: DateTime, Local, TimeZone
+	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
-	use std::str::FromStr;
-	use super::config;
-
-	use redis::{self};
+	use redis;
 	use redis::Commands;
+	use crate::btu_cron;
+	use crate::config;
 
 	// Deliberately excluding SQL column that don't matter for this program.
 	#[derive(Debug, Clone)]
@@ -155,6 +51,7 @@ pub mod task_scheduler {
 		argument_overrides: Option<String>,  // MUST use Option here, if the result is at all Nullable.
 		schedule_description: String,
 		cron_string: String,
+		cron_timezone: chrono_tz::Tz
 	}
 
 	pub fn read_btu_task_schedule(app_config: &config::AppConfig, task_schedule_id: &str) -> Option<BtuTaskSchedule> {
@@ -177,6 +74,9 @@ pub mod task_scheduler {
 			/home/sysop/.cargo/registry/src/github.com-1ecc6299db9ec823/mysql_common-0.27.5/src/value/convert/mod.rs:175:23
 		*/
 
+		// TODO: Stop hardcoding this, and fetch from SQL Table `tabBTU Task Schedule`
+		let eastern_timezone = chrono_tz::America::New_York;
+
 		let task_schedules: Vec<BtuTaskSchedule> = sql_conn
 			.query_map(query_syntax, |row: mysql::Row| {
 				BtuTaskSchedule {
@@ -189,6 +89,7 @@ pub mod task_scheduler {
 					argument_overrides: row.get(6).unwrap(),
 					schedule_description:row.get(7).unwrap(),
 					cron_string:  row.get(8).unwrap(),
+					cron_timezone: eastern_timezone
 				}
 			}).unwrap();
 	
@@ -203,55 +104,36 @@ pub mod task_scheduler {
 
 	// Entry point for building new Redis Queue Jobs.
 	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
-		// Entry point for building new Redis Queue Jobs.
-
 		/*
+			Summary: Main entry point for scheduling new Redis Queue Jobs.
+
 			In the Python 'rq_scheduler' library, the public entrypoint (from the website) was named a function 'cron()'.
 			That function does a few things, which we'll need to replicate here:
   
- 			1. Get the next scheduled execution time.
-			2. Create a 'job' Object
-
-					job = self._create_job(func, args=args, kwargs=kwargs, commit=False,
-										result_ttl=-1, id=id, queue_name=queue_name,
-										description=description, timeout=timeout, meta=meta, depends_on=depends_on,
-										on_success=on_success, on_failure=on_failure)
-
-					job.meta['cron_string'] = cron_string
-					job.meta['use_local_timezone'] = use_local_timezone
-
-					if repeat is not None:
-						job.meta['repeat'] = int(repeat)
-
-					job.save()
-
-				a.
-				b.
-				c.
-				d.
-			3. Adds a Redis key: self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
-
-		
+ 			1. Get the next scheduled execution time, in UTC.
+			2. Create an RQ 'job' Object
+			3. Adds a Z key to Redis where the "Score" is the Next UTC Runtime, expressed as a Unix Time.
+				self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
 		*/
 
-		// println!("{}", app_config);
-		// println!("Okay, I have all the task data for {}.  Now I need to create an RQ schedule from it.", task_schedule.id);
+		dbg!(format!("Scheduling BTU Task Schedule {}", task_schedule.id));
 
 		/* Variables needed:
 		cron_string, func, args=None, kwargs=None, repeat=None,
 		queue_name=None, id=None, timeout=None, description=None, meta=None, use_local_timezone=False,
 		depends_on=None, on_success=None, on_failure=None):
 		*/
+		use chrono::DateTime;
 
-		let next_runtime = cron_to_next_scheduled_time_utc(&task_schedule.cron_string);
-		if next_runtime.is_none() {
+		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::local_cron_to_utc_datetimes(&task_schedule.cron_string, task_schedule.cron_timezone, 10).unwrap();
+		if next_runtimes.len() == 0 {
 			println!("ERROR: Cannot calculate the next Next Runtime for Task {}", &task_schedule.id);
 			()
 		}
-	
-		// println!("This BTU Task should next execute at: {:#?}", next_runtime.unwrap());
+		dbg!(format!("The next execution time for this Task is {}", next_runtimes[0]));
+
 		println!("TODO: Establish a connection to Redis RQ database on host {}, port {}", app_config.rq_host, app_config.rq_port);
-		
+	
 		/*
 		// Set result_ttl to -1, as jobs scheduled via cron are periodic ones.
    		// Otherwise the job would expire after 500 sec.
@@ -352,72 +234,4 @@ pub mod task_scheduler {
 			None
 		}
 	}
-
-
-	fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, String> {
-		/*
-		Given a cron string of N elements, transform into a cron string of 7 elements.
-
-		Reasoning: There is no universal standard for cron strings.  They could contain 5-7 elements.  However
-		           the 'cron' library expects 7 elements.  This function pads the missing elements.
-		*/
-
-		let iter = cron_expression_string.split_whitespace();
-		let vec: Vec<&str> = iter.collect::<Vec<&str>>();
-
-		match vec.len() {
-			5 =>  {
-				// Prefix with '*' for seconds, and suffix with '*' for years.
-				return Ok(format!("* {} *", cron_expression_string));
-			},
-			6 => {
-				// Assume we're dealing with a cron(5) plus Year.  So prefix '*' for seconds.
-				return Ok(format!("* {}", cron_expression_string));
-			},	
-			7 => {
-				// Cron string already has 7 elements, so pass it back.
-				return Ok(cron_expression_string.to_owned())
-			},
-			_ => {
-				return Err(format!("Cron expression string has {} values", vec.len()));
-			}				
-		}
-	}
-
-
-	fn cron_to_next_scheduled_time_utc(cron_expression_string: &str) -> Option<DateTime<Utc>> {
-    	/*
-			Based on a cron string, what is the next, scheduled Datetime?
-			Documentation: https://docs.rs/cron/0.9.0/cron
-
-			Note: The 'cron' library expects a 7-element cron string.  Where the additional elements are:
-				--> Seconds
-					Minutes
-					Hours
-					Day of Month
-					Month
-					Day of Week
-				--> Years
-		*/
-
-		match cron_str_to_cron_str7(cron_expression_string) {
-			Ok(cron_string) => {
-
-				// We now have a 7-element cron string.
-				match Schedule::from_str(&cron_string) {
-					Ok(schedule) => {
-						return schedule.upcoming(Utc).take(10).next();
-					},
-					Err(error) => {
-						println!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_string, error);
-						return None;
-					}
-				}
-			},
-			Err(error) => {
-				println!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_expression_string, error);
-				return None;
-			}
-		}
-	} // end function 'get_next_scheduled_time_utc'
 }
