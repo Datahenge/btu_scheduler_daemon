@@ -9,7 +9,6 @@ mod tests {
 	use crate::btu_cron::cron_str_to_cron_str7;
 	use crate::btu_cron::{local_cron_to_utc_datetimes};
 	use chrono::Utc;
-	use chrono_tz::Tz;
 
     #[test]
     fn test_cron7_fail() {
@@ -71,6 +70,7 @@ mod tests {
 	/* Function Not-Yet-Implemented
 
 	use crate::cron::future_foo;
+	use chrono_tz::Tz;
 
 	#[test]
 	fn test_cron_to_utc_cron() {

@@ -34,7 +34,7 @@ Regardless of where you save the executable, you must create and maintain a TOML
 ```toml
 # This is the TOML configuration file for the BTU Scheduler Daemon
 name = "BTU Schedule Daemon"
-max_seconds_between_updates = 90
+full_refresh_internal_secs = 90
 scheduler_polling_interval=60
 
 mysql_user = "root"

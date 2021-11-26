@@ -73,3 +73,26 @@ I thought about these, but they didn't make the cut.
 * Interprocess: https://crates.io/crates/interprocess
 * Metal IO:     https://github.com/tokio-rs/mio
 
+
+## Other Notes
+
+### The Many Troubles of Cron
+
+1. The 'cron' crate assumes all cron expressions are in terms of UTC time.
+2. The 'cron' crate works with a 7-element cron expression.  Most Unix systems only recognize 5-elements.
+3. The 'cron' crate believes that Sunday is day 1 and Saturday is day 7.  This is contrary to other software (Sunday=0, Saturday=6)
+4. How do you convert from a TZ-aware cron expression to a UTC cron expression?
+
+#### cron5 versus cron7
+
+The Rust 'cron' library expects a 7-element cron string.  Where the additional elements are:
+* Seconds (position 0)
+* Years (position 6)
+
+So that overall, the cron expression looks like this:
+```
+Seconds    Minutes    Hours    Day_of_Month    Month    Day_of_Week    Years
+```
+
+To integrate with this library, I've had to expand cron expressions with fewer elements, into 7 elements.
+The function handling this is `cron_str_to_cron_str7()` in the `btu_cron.rs` file.

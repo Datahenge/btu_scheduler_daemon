@@ -1,7 +1,7 @@
 {
 	"folders": [
 		{
-			"path": "/home/sysop/projects/rust/pyrq_scheduler"
+			"path": "/home/sysop/projects/rust/btu_scheduler"
 		}
 	],
 	"settings": {
@@ -9,6 +9,14 @@
 		"rust-analyzer.inlayHints.parameterHints": false,
 		"rust-analyzer.inlayHints.typeHints": false,
 		"rust-analyzer.server.path": "/opt/bin/rust-analyzer/rust-analyzer",
-		"rust-analyzer.trace.extension": true
+		"rust-analyzer.trace.extension": true,
+		"search.exclude": {
+			"**/node_modules": true,
+			"**/bower_components": true,
+			"**/*.code-search": true,
+			"*.py": true,
+			"*.md": true,
+			"*.lock": true
+		}
 	}
 }
