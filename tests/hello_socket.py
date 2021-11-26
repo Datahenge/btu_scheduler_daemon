@@ -23,9 +23,9 @@ def talk_to_server():
 		message = bytes(message_string, 'utf-8')
 		sock.sendall(message)
 
-	send_message("Hello, Christine!")
+	send_message("Hello, World!")
 	time.sleep(5)
-	send_message("I am a little daemon!")
+	send_message("I am a a client application!")
 	time.sleep(1)
 
 	print("Closing this client socket, and exiting...")
