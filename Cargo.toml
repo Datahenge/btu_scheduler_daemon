@@ -6,6 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+camino = "1.0.5"
 chrono = "0.4"
 chrono-tz = "0.6.0"
 cron = "0.9.0"

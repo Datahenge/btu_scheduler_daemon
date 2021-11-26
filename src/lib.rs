@@ -28,16 +28,20 @@ pub mod error {
 	}
 }
 
-
 pub mod task_scheduler {
 
-	use chrono::Utc; // See also: DateTime, Local, TimeZone
+	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
 	use redis;
-	use redis::Commands;
+	use redis::{Commands, RedisError};
 	use crate::btu_cron;
 	use crate::config;
+
+	static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
+	static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
+    static RQ_KEY_SCHEDULER_LOCK: &'static str = "rq:scheduler_lock";
+    static RQ_KEY_SCHEDULED_JOBS: &'static str = "btu_scheduler:job_execution_times";
 
 	// Deliberately excluding SQL column that don't matter for this program.
 	#[derive(Debug, Clone)]
@@ -93,14 +97,14 @@ pub mod task_scheduler {
 				}
 			}).unwrap();
 	
-		// Get the first BtuTaskSchedule record.
-		// Because 'name' is the table's Primary Key, there can only be one (or zero) values.
+		// Get the first BtuTaskSchedule struct in the vector.
+		// Because 'name' is the MySQL table's Primary Key, there is either 0 or 1 values.
 		if let Some(btu_task_schedule) =  task_schedules.iter().next() {
-			Some(btu_task_schedule.to_owned())  // <--- function returns here
+			Some(btu_task_schedule.to_owned())
 		} else {
-			None  // no such record in the table
+			None  // no such record in the MySQL table.
 		}       
-	} // end of 'read_btu_task_schedule'
+	}
 
 	// Entry point for building new Redis Queue Jobs.
 	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
@@ -116,24 +120,22 @@ pub mod task_scheduler {
 				self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
 		*/
 
-		dbg!(format!("Scheduling BTU Task Schedule {}", task_schedule.id));
+		println!("Scheduling BTU Task Schedule: '{}'", task_schedule.id);
+		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::local_cron_to_utc_datetimes(&task_schedule.cron_string, task_schedule.cron_timezone, 10).unwrap();
+		if next_runtimes.len() == 0 {
+			println!("ERROR: Cannot calculate the next Next Runtime for Task {}", &task_schedule.id);
+			()
+		}
+		println!("  * Next execution time for this Task is {}", next_runtimes[0]);
+
+		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 
 		/* Variables needed:
 		cron_string, func, args=None, kwargs=None, repeat=None,
 		queue_name=None, id=None, timeout=None, description=None, meta=None, use_local_timezone=False,
 		depends_on=None, on_success=None, on_failure=None):
 		*/
-		use chrono::DateTime;
 
-		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::local_cron_to_utc_datetimes(&task_schedule.cron_string, task_schedule.cron_timezone, 10).unwrap();
-		if next_runtimes.len() == 0 {
-			println!("ERROR: Cannot calculate the next Next Runtime for Task {}", &task_schedule.id);
-			()
-		}
-		dbg!(format!("The next execution time for this Task is {}", next_runtimes[0]));
-
-		println!("TODO: Establish a connection to Redis RQ database on host {}, port {}", app_config.rq_host, app_config.rq_port);
-	
 		/*
 		// Set result_ttl to -1, as jobs scheduled via cron are periodic ones.
    		// Otherwise the job would expire after 500 sec.
@@ -149,18 +151,35 @@ pub mod task_scheduler {
 			job.meta['repeat'] = int(repeat)
 	   	job.save()
 
-   		self.connection.zadd(self.scheduled_jobs_key, {job.id: to_unix(scheduled_time)})
-   		return job
 		*/
+
+		// The Redis 'zadd()' operation returns an integer.
+		let some_result: Result<std::primitive::u32, RedisError>;
+		some_result = redis_conn.zadd(RQ_KEY_SCHEDULED_JOBS, &task_schedule.redis_job_id, next_runtimes[0].timestamp());
+
+		match some_result {
+			Ok(result) => {
+				println!("Result from 'zadd' is Ok, with the following payload: {}", result);
+			},
+			Err(error) => {
+				println!("Result from 'zadd' is Err, with the following payload: {}", error);
+			}
+		}
+   		()
 	}
 
 	pub fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
 		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
 
-		// Developer Notes: Some cleverness in here courtesy of 'rq-scheduler' project.  For this particular key,
+		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
 		// the Z-score represents the Unix Timestamp the Job is supposed to execute on.
 		// By fetching ALL the values below a certain threshhold (Timestamp), the program knows precisely which Jobs
 		// to enqueue...
+		
+		println!("Searching Redis for Jobs that can be immediately enqueued in RQ ...");
+
+		println!("FYI, here are all the tasks:");
+		rq_print_scheduled_tasks(&app_config);
 
 		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
 		
@@ -168,8 +187,11 @@ pub mod task_scheduler {
 		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
 		let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore("rq:scheduler:scheduled_jobs", 0, sched_before_unix_time);
 		if redis_result.is_ok() {
-			println!("Jobs to enqueue: {:?}", redis_result.as_ref().unwrap());
-			redis_result.unwrap()  // return a Vector of Job identifiers
+			let jobs_to_enqueue = redis_result.unwrap();
+			if jobs_to_enqueue.len() > 0 {
+				println!("Found {:?} jobs that qualify for immediate execution.", jobs_to_enqueue);
+			}
+			jobs_to_enqueue  // return a Vector of Job identifiers
 		}
 		else {
 			Vec::new()
@@ -178,18 +200,24 @@ pub mod task_scheduler {
 
 	pub fn promote_jobs_to_rq_if_ready(app_config: &config::AppConfig) {
 		// This function is analgous to the 'rq-scheduler' Python function: 'Scheduler.enqueue_jobs()'
-		println!("Checking for jobs that need immediate enqueing into RQ...");
-		
+
 		let unix_timestamp_now = Utc::now().timestamp();
-		println!("Current Unix Timestamp is '{}'", unix_timestamp_now);
+		// println!("Current Unix Timestamp is '{}'", unix_timestamp_now);
 
         let jobs_to_enqueue = fetch_jobs_ready_for_rq(app_config, unix_timestamp_now);
-
 		for job in jobs_to_enqueue.iter() {
-			println!("Time to make the donuts! (let's enqueue Redis Job '{}' for immediate execution)", job);
+			println!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", job);
 			// self.enqueue_job(job)
 		}
 	}
+
+	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
+		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		for result in redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect::<Vec<String>>() {
+			println!("{}", result);
+		};
+	}
+
 
 	/*
 	
@@ -211,7 +239,7 @@ pub mod task_scheduler {
 
 	}
 
-	list_jobs_in_rq() {
+	rq_print_scheduled_tasks() {
 
 	}
 
@@ -219,7 +247,7 @@ pub mod task_scheduler {
 
 	}
 	*/
-
+	
 	pub fn get_redis_connection(app_config: &config::AppConfig) -> Option<redis::Connection> {
 		// Returns a Redis Connection, or None.
 		let client: redis::Client = redis::Client::open(format!("redis://{}:{}/", app_config.rq_host, app_config.rq_port)).unwrap();

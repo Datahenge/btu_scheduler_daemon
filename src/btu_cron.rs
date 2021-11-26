@@ -6,14 +6,6 @@ use std::str::FromStr;
 
 use crate::error::CronError;
 
-/* The Many Troubles of Cron
-
-	1. The 'cron' crate only thinks about cron expressions as being written for UTC time.
-	2. The 'cron' crate works with a 7-element cron expression.  Most Unix systems only recognize 5-elements.
-	3. The 'cron' crate believes that Sunday is day 1 and Saturday is day 7.  This is contrary to other software (Sunday=0, Saturday=6)
-	4. How do you convert from a TZ-aware cron expression to a UTC cron expression?
-*/
-
 pub fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, CronError> {
 	/*
 	Given a cron string of N elements, transform into a cron string of 7 elements.
@@ -45,43 +37,37 @@ pub fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, Cr
 }
 
 
-pub fn local_cron_to_utc_datetimes(cron_expression_string: &str, cron_timezone: Tz, number_of_results: usize) -> Result<Vec<DateTime<Utc>>, CronError> {
+pub fn local_cron_to_utc_datetimes(cron_expression_string: &str,
+	                               cron_timezone: Tz,
+	                               number_of_results: usize) -> Result<Vec<DateTime<Utc>>, CronError> {
 	/*
 		Based on a cron string, what is the next, scheduled Datetime?
 		Documentation: https://docs.rs/cron/0.9.0/cron
-
-		Note: The Rust 'cron' library expects a 7-element cron string.  Where the additional elements are:
-			--> Seconds
-				Minutes
-				Hours
-				Day of Month
-				Month
-				Day of Week
-			--> Years
 	*/
 
 	/* NOTE 1:  This is a VERY simplistic implementation of a valid list of UTC DateTimes.
-	            What's actually required is something that handles Daylight Savings and time shifts.
+	            What is truly required is something that handles Daylight Savings and time shifts.
 				But it's good enough for today.
-	*/
 
-	/* NOTE 2:  Rather than returning a Vector of UTC Datetimes, it would be -better- to return an Iterator.
+	   NOTE 2:  Rather than returning a Vector of UTC Datetimes, it would be -better- to return an Iterator.
 				I don't know how to do that in Rust (yet).  One step at a time.
 	*/
 	
 	let cron7_expression = cron_str_to_cron_str7(cron_expression_string)?;
-	let schedule = Schedule::from_str(&cron7_expression).unwrap();
+	let schedule = Schedule::from_str(&cron7_expression).unwrap();  // Schedule requires a 7-element cron expression.
 
 	let mut virtual_datetimes: Vec<DateTime<Utc>> = Vec::new();
 
-	/* The initial results below will be UTC datetimes.  Because that's what "schedule" is producing.
-	 I'm going to work around that:
-		1. Strip their time zone component, to make them naive datetimes.
-		2. Then make them Local Times using the timezone supplied to this function.
-		3. And *then* convert them to UTC.
+	/* 	The initial results below will be UTC datetimes.  Because that is what Schedule outputs.
+		Workaround:
+		1. Strip the time zone component, so the UTC DateTime becomes a Naive Datetime.
+		2. Change to Local Times by applying the function argument `cron_timezone`.
+		   At this point, it's as-if Schedule created Local times in the first place.
+		3. Finally, shift the DateTime to UTC, in preparation for integration with RQ.
 
-		This will completely shatter during Daylight Savings...but it's a 98% okay function for today.
+		Yes, this will completely break during Daylight Savings.  For today, it's 80/20.
 	*/
+
 	for utc_datetime in schedule.upcoming(Utc).take(number_of_results) {
     	// dbg!("Next Loop", utc_datetime);
 		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(utc_datetime.timestamp(), 0);

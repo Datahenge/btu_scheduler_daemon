@@ -1,4 +1,4 @@
-// Dev Note: No need to create another mod { } here, since we're in a separate physical file.
+// Dev Note: No need to create a 'config' mod { } here, since we're in a separate physical file.
 
 mod error {
 
@@ -14,20 +14,23 @@ mod error {
 			source: TomlError,
 		},
 		#[error("Cannot find the TOML configuration file on disk.")]
-		MissingConfigFile,
+		MissingConfigFile
 	}
 }
 
 use std::{fmt, fs};
-use std::path::Path;
-use serde::Deserialize;  	// Also there is Serialize
+use std::path::{Path};
+use serde::{Deserialize, Serialize};
 // use mysql::*;			// WARNING: Do -not- import mysql like this.  It will override default types, like Error.
 use mysql::{Opts, Pool};
 use crate::config::error::ConfigError;
 
-#[derive(Deserialize)]
+
+static CONFIG_FILE_PATH: &'static str = "/etc/btu_scheduler/btu_scheduler.toml";
+
+#[derive(Deserialize, Serialize)]
 pub struct AppConfig {
-	pub max_seconds_between_updates: u32,
+	pub full_refresh_internal_secs: u32,
 	mysql_user: String,
 	mysql_password: String,
 	mysql_host: String,
@@ -35,14 +38,20 @@ pub struct AppConfig {
 	mysql_database: String,
 	pub rq_host: String,
 	pub rq_port: u32,
-	pub scheduler_polling_interval: u64
+	pub scheduler_polling_interval: u64,
+	pub socket_path: String  // Dev Note:  The level of effort to make this a PathBuf or Utf8PathBuf, and incorporate with MutexGuard?  TOO MUCH!
 }
 
 impl AppConfig {
+
 	pub fn new_from_toml_string(any_string: &str) -> Result<AppConfig, ConfigError> {
-		// Dev Notes: Rust + toml accomplish some fancy work here.  First, the raw string is converted to a TOML object.
-		// Next, that TOML object is mapped 1:1 with the struct, and all elemnets are populated.
-		// One reason this is possible?  The TOML specification has the concepts of strings, integers, and nulls.  :)
+		/* 
+			Dev Notes: Rust and toml achieve some fanciness below.
+			1. The raw string is converted to a TOML struct.
+			2. That TOML struct is mapped 1:1 with my struct AppConfig, and all elements are populated.
+		
+			One reason this is possible?  The TOML specification has the concepts of strings, integers, and nulls.  :)
+		*/
 		match toml::from_str(&any_string) {
 			Ok(app_config) => {
 				Ok(app_config)
@@ -52,16 +61,16 @@ impl AppConfig {
 			}
 		}
 	}
-}
 
-impl AppConfig {
-	// Associated function signature; `Self` refers to the implementor type.
 	pub fn new_from_toml_file() -> Result<AppConfig, ConfigError> {
 
 		// Read TOML file, and store values here in this configuration.
-		let file_path = Path::new("/etc/btu_scheduler/.btu_scheduler.toml");
+		let file_path = Path::new(CONFIG_FILE_PATH);
 		if ! file_path.exists() {
-			return Err(ConfigError::MissingConfigFile);
+			// Originally I intended to create a default configuration.  
+			// But this requires elevating to root and restarting the app.  And either way, the user needs to manually key in
+			// values for MySQL and Redis credentials.  So better to just print and exit.
+			AppConfig::print_default_config_exit();
 		}
 
 		let file_contents: String = fs::read_to_string(file_path)
@@ -71,6 +80,27 @@ impl AppConfig {
 		let result = AppConfig::new_from_toml_string(&file_contents);
 		result
 		// println!("{}", config);  // uses the Display trait defined below.
+	}
+
+	pub fn print_default_config_exit() -> () {
+		println!("\nError: No configuration file was found at path: {}", CONFIG_FILE_PATH);
+		println!("You will need to create a configuration file manually.");
+		println!("Below is an example of the file's contents:\n");
+		let default_config = AppConfig {
+			full_refresh_internal_secs: 180,
+			mysql_user: "root".to_string(),
+			mysql_password: "foo".to_string(),
+			mysql_host: "127.0.0.1".to_string(),
+			mysql_port: Some(3306),
+			mysql_database: "bar".to_string(),
+			rq_host: "127.0.0.1".to_string(),
+			rq_port: 11000,
+			scheduler_polling_interval: 60,
+			socket_path: "/tmp/btu_scheduler.sock".to_string()
+		};
+		let toml_string = toml::to_string(&default_config).unwrap();
+		println!("{}", toml_string);
+		std::process::exit(1);
 	}
 }
 
@@ -85,7 +115,7 @@ Host: {}.{:?}\n
 Database: {}\n
 RQ Host: {}\n
 RQ Port: {}",
-			self.max_seconds_between_updates,
+			self.full_refresh_internal_secs,
 			self.mysql_user,
 			"********",
 			self.mysql_host,
