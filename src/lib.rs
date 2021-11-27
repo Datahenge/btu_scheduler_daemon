@@ -1,8 +1,15 @@
 #![forbid(unsafe_code)]
+#![allow(dead_code)]
 
 mod tests;
 pub mod config;
 pub mod btu_cron;
+
+pub fn get_package_version() -> &'static str {
+    // Completed.
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    VERSION
+}
 
 pub mod error {
 	use toml::de::Error		as TomlError;
@@ -26,17 +33,27 @@ pub mod error {
 			found: usize
 		},
 	}
+
+	#[derive(ThisError, Debug, PartialEq)]
+	pub enum StringError {
+		#[error("Element cannot be split using delimiter.")]
+		MissingDelimiter,
+	}
+
 }
 
 pub mod task_scheduler {
 
 	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
+	use chrono::NaiveDateTime;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
 	use redis;
 	use redis::{Commands, RedisError};
+
 	use crate::btu_cron;
 	use crate::config;
+	use crate::pyrq;
 
 	static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
 	static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
@@ -128,7 +145,7 @@ pub mod task_scheduler {
 		}
 		println!("  * Next execution time for this Task is {}", next_runtimes[0]);
 
-		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let mut redis_conn = pyrq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 
 		/* Variables needed:
 		cron_string, func, args=None, kwargs=None, repeat=None,
@@ -168,7 +185,7 @@ pub mod task_scheduler {
    		()
 	}
 
-	pub fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
+	fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
 		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
 
 		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
@@ -181,7 +198,7 @@ pub mod task_scheduler {
 		println!("FYI, here are all the tasks:");
 		rq_print_scheduled_tasks(&app_config);
 
-		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
+		let mut redis_conn = pyrq::get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
 		
 		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
 		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
@@ -211,13 +228,57 @@ pub mod task_scheduler {
 		}
 	}
 
-	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
-		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		for result in redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect::<Vec<String>>() {
-			println!("{}", result);
-		};
+	#[derive(Debug, PartialEq, Clone)]
+	pub struct RQScheduledJob {
+		job_id: String,
+		start_datetime_unix: i64,
+		start_datetime_utc: DateTime<Utc>
 	}
 
+	/*
+	impl From<(String,String)> for RQScheduledJob {
+		fn from(tuple: (String, String)) -> RQScheduledJob {
+
+			let timestamp: i64 = tuple.1.parse().unwrap();
+			RQScheduledJob {
+				job_id: tuple.0,
+				start_datetime_unix: timestamp,
+				start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
+			}
+		}
+	}
+	*/
+
+	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> Vec<RQScheduledJob> {
+		/*
+			Call RQ and request the list of values in "btu_scheduler:job_execution_times"
+
+			This is REALLY messy.  I'm sure there's some better Types and conversions I can do.
+			But it's 2am, and I'm really glad the damn thing is running at all right now!
+		*/
+		let mut redis_conn = pyrq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect();
+
+		let mut result: Vec<RQScheduledJob> = Vec::new();
+		for baz in redis_result.iter().collect::<Vec<&(String, String)>>() {
+			let timestamp: i64 = baz.1.parse().unwrap();
+			result.push(
+				RQScheduledJob {
+					job_id: baz.0.clone(),
+					start_datetime_unix: timestamp,
+					start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
+				}	
+			);
+		}
+		result
+	}
+	
+	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
+		let tasks = rq_get_scheduled_tasks(app_config);
+		for result in tasks {
+			println!("{:#?}", result);
+		};
+	}
 
 	/*
 	
@@ -247,8 +308,18 @@ pub mod task_scheduler {
 
 	}
 	*/
-	
-	pub fn get_redis_connection(app_config: &config::AppConfig) -> Option<redis::Connection> {
+}
+
+pub mod pyrq {
+
+	use crate::config::AppConfig;
+	use redis::{Commands, RedisError};
+
+
+	static RQ_JOB_PREFIX: &str = "rq:job";
+
+
+	pub fn get_redis_connection(app_config: &AppConfig) -> Option<redis::Connection> {
 		// Returns a Redis Connection, or None.
 		let client: redis::Client = redis::Client::open(format!("redis://{}:{}/", app_config.rq_host, app_config.rq_port)).unwrap();
 		if let Ok(result) = client.get_connection() {
@@ -262,4 +333,21 @@ pub mod task_scheduler {
 			None
 		}
 	}
+
+	pub fn read_job_by_id(app_config: &AppConfig, job_id: &str) -> () {
+
+		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let key: String = format!("{}:{}", RQ_JOB_PREFIX, job_id);
+		let result: Result<String, RedisError> = redis_conn.hgetall(key);
+		match result {
+			Ok(foo) => {
+				println!("Success.  Here's a string representation of what's in Redis: {}", foo);
+			},
+			Err(bar) => {
+				println!("Error.  Here's what that error looks like: {}", bar);
+			}
+		}
+		()
+	}
+
 }

@@ -556,6 +556,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "iter-read"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ea34c173b290f2449bb0489ae1024c2cf8b1c1dd1cc58a2e105df7f5d759f5d"
+
+[[package]]
 name = "itoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -985,11 +991,13 @@ dependencies = [
  "camino",
  "chrono",
  "chrono-tz",
+ "clap",
  "cron",
  "mysql",
  "once_cell",
  "redis",
  "serde",
+ "serde-pickle",
  "thiserror",
  "toml",
 ]
@@ -1192,6 +1200,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f12d06de37cf59146fbdecab66aa99f9fe4f78722e3607577a5375d66bd0c913"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-pickle"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47b0d075918cbf8475cedcae8e85844f437e2a7c70d54a2f405fab29bb6b2536"
+dependencies = [
+ "byteorder",
+ "iter-read",
+ "num-bigint 0.4.3",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]

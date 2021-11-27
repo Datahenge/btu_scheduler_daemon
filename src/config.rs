@@ -106,15 +106,17 @@ impl AppConfig {
 
 impl fmt::Display for AppConfig {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "Application Configuration:\n
-Seconds Between Refresh: {}\n
-MySQL:\n
-Username: {}\n
-Password: {}\n
-Host: {}.{:?}\n
-Database: {}\n
-RQ Host: {}\n
-RQ Port: {}",
+		write!(f, "BTU Application Configuration:\n
+* MySQL Username: {}
+* MySQL Password: {}
+* MySQL Host: {}.{:?}
+* MySQL Database: {}
+* Path to Socket File: {}
+* RQ Host: {}
+* RQ Port: {}
+* Scheduler Polling Interval: {}
+* Seconds Between Refresh: {}
+",
 			self.full_refresh_internal_secs,
 			self.mysql_user,
 			"********",
@@ -122,7 +124,9 @@ RQ Port: {}",
 			self.mysql_port.unwrap_or(3306),
 			self.mysql_database,
 			self.rq_host,
-			self.rq_port
+			self.rq_port,
+			self.scheduler_polling_interval,
+			self.socket_path
 		)
 	}
 }
