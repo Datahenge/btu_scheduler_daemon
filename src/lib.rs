@@ -52,8 +52,6 @@ pub mod error {
 
 pub mod task_scheduler {
 
-	use core::panic;
-
 use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
 	use mysql::PooledConn;
@@ -245,24 +243,32 @@ use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 		pub start_datetime_utc: DateTime<Utc>
 	}
 
-	fn _from_tuple_to_rqscheduledjob(tuple: &(String, String)) -> RQScheduledJob {
-		let timestamp: i64 = tuple.1.parse().unwrap();
-		RQScheduledJob {
+	fn _from_tuple_to_rqscheduledjob(tuple: &(String, String)) -> Result<RQScheduledJob, std::io::Error> {
+		/* 
+			Use the tuple with 2 Strings to construct an RQScheduledJob struct.
+			Cannot think of a reason why I should move/consume the tuple?  So I won't.
+		*/
+		let timestamp: i64 = tuple.1.parse::<i64>().unwrap();  // coerce the second String into an i64, using "turbofish" syntax
+		Ok(RQScheduledJob {
 			job_id: tuple.0.clone(),
 			start_datetime_unix: timestamp,
 			start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
-		}
+		})
 	}
 
 	impl From<(String,String)> for RQScheduledJob {
 
 		// TODO: Change to a Result with some kind of Error
 		fn from(tuple: (String, String)) -> RQScheduledJob {
-			_from_tuple_to_rqscheduledjob(&tuple)
+			_from_tuple_to_rqscheduledjob(&tuple).unwrap()
 		}
 	}
 
-	// NOTE:  This is the 'Newtype Pattern'
+	// NOTE:  Below is the 'Newtype Pattern'.
+	// It's useful when you need implement Traits you aren't normally allowed to: because you don't own either
+	// the Trait or Type.  In this case, I don't the "From" or "FromIterator" traits, nor the "Vector" type.
+	// But I wrap Vec<RQScheduledJob> in a Newtype, and I can do whatever I want with it.
+
 	pub struct VecRQScheduledJob ( Vec<RQScheduledJob> );
 
 	impl VecRQScheduledJob {
@@ -278,6 +284,8 @@ use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 		}
 	}
 
+	/* OLD IMPLEMENTATION, before I returned a Result.
+
 	impl std::iter::FromIterator<RQScheduledJob> for VecRQScheduledJob {
 
 		fn from_iter<T>(iter: T) -> VecRQScheduledJob
@@ -286,6 +294,20 @@ use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 			let mut result: VecRQScheduledJob = VecRQScheduledJob::new();
 			for inner in iter { 
 				result.0.push(inner); 
+			}
+			result
+		}
+	}
+	*/
+
+	impl std::iter::FromIterator<Result<RQScheduledJob, std::io::Error>> for VecRQScheduledJob {
+
+		fn from_iter<T>(iter: T) -> VecRQScheduledJob
+		where T: IntoIterator<Item=Result<RQScheduledJob, std::io::Error>> {
+			
+			let mut result: VecRQScheduledJob = VecRQScheduledJob::new();
+			for inner in iter {
+				result.0.push(inner.unwrap()); 
 			}
 			result
 		}
@@ -330,12 +352,9 @@ use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 		fn from(vec_of_tuple: Vec<(String,String)>) -> Self {
 
 			if vec_of_tuple.len() == 0 {
-				dbg!("Converting from an empty tuple?");
+				// If passed an empty tuple, return an empty Vector of RQScheduledJob.
 				return VecRQScheduledJob::new();
 			}
-			dbg!("Step 1: Going from Vec<(String,String)> into VecRQScheduled Job.");
-			dbg!(&vec_of_tuple);
-			//let result: VecRQScheduledJob = VecRQScheduledJob::new();
 			let result = vec_of_tuple.iter().map(_from_tuple_to_rqscheduledjob).collect();
 			result
 		}
@@ -347,28 +366,9 @@ use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 		*/
 		let mut redis_conn = pyrq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect();
-
-		println!("Answer from Redis: there are {} scheduled tasks.", redis_result.len());
-		
-		// return VecRQScheduledJob::new();
-
+		// println!("Answer from Redis: there are {} scheduled tasks.", redis_result.len());
 		let wrapped_result: VecRQScheduledJob = redis_result.into();
 		wrapped_result		
-
-		/*
-		let mut result: Vec<RQScheduledJob> = Vec::new();
-		for baz in redis_result.iter().collect::<Vec<&(String, String)>>() {
-			let timestamp: i64 = baz.1.parse().unwrap();
-			result.push(
-				RQScheduledJob {
-					job_id: baz.0.clone(),
-					start_datetime_unix: timestamp,
-					start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
-				}	
-			);
-		}
-		*/
-
 	}
 	
 	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
