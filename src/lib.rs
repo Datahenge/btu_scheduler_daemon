@@ -40,21 +40,31 @@ pub mod error {
 		MissingDelimiter,
 	}
 
+	#[derive(ThisError, Debug, PartialEq)]
+	pub enum RQError {
+		#[error("No idea what happened here.")]
+		Unknown {
+			#[from]
+			source: redis::RedisError,
+		}
+	}
 }
 
 pub mod task_scheduler {
 
-	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
+	use core::panic;
+
+use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
-	use redis;
+	use redis::{self};
 	use redis::{Commands, RedisError};
 
 	use crate::btu_cron;
 	use crate::config;
 	use crate::pyrq;
-
+	
 	static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
 	static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
     static RQ_KEY_SCHEDULER_LOCK: &'static str = "rq:scheduler_lock";
@@ -194,7 +204,6 @@ pub mod task_scheduler {
 		// to enqueue...
 		
 		println!("Searching Redis for Jobs that can be immediately enqueued in RQ ...");
-
 		println!("FYI, here are all the tasks:");
 		rq_print_scheduled_tasks(&app_config);
 
@@ -228,37 +237,125 @@ pub mod task_scheduler {
 		}
 	}
 
+
 	#[derive(Debug, PartialEq, Clone)]
 	pub struct RQScheduledJob {
-		job_id: String,
-		start_datetime_unix: i64,
-		start_datetime_utc: DateTime<Utc>
+		pub job_id: String,
+		pub start_datetime_unix: i64,
+		pub start_datetime_utc: DateTime<Utc>
 	}
 
-	/*
-	impl From<(String,String)> for RQScheduledJob {
-		fn from(tuple: (String, String)) -> RQScheduledJob {
+	fn _from_tuple_to_rqscheduledjob(tuple: &(String, String)) -> RQScheduledJob {
+		let timestamp: i64 = tuple.1.parse().unwrap();
+		RQScheduledJob {
+			job_id: tuple.0.clone(),
+			start_datetime_unix: timestamp,
+			start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
+		}
+	}
 
-			let timestamp: i64 = tuple.1.parse().unwrap();
-			RQScheduledJob {
-				job_id: tuple.0,
-				start_datetime_unix: timestamp,
-				start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
+	impl From<(String,String)> for RQScheduledJob {
+
+		// TODO: Change to a Result with some kind of Error
+		fn from(tuple: (String, String)) -> RQScheduledJob {
+			_from_tuple_to_rqscheduledjob(&tuple)
+		}
+	}
+
+	// NOTE:  This is the 'Newtype Pattern'
+	pub struct VecRQScheduledJob ( Vec<RQScheduledJob> );
+
+	impl VecRQScheduledJob {
+
+		fn new() -> Self {
+			let empty_vector: Vec<RQScheduledJob> = Vec::new();
+			VecRQScheduledJob(empty_vector)
+		}
+
+		fn len(&self) -> usize {
+			// Because this is just a 1-element tuple, "self.0" gets the inner Vector!
+			self.0.len()
+		}
+	}
+
+	impl std::iter::FromIterator<RQScheduledJob> for VecRQScheduledJob {
+
+		fn from_iter<T>(iter: T) -> VecRQScheduledJob
+		where T: IntoIterator<Item=RQScheduledJob> {
+			
+			let mut result: VecRQScheduledJob = VecRQScheduledJob::new();
+			for inner in iter { 
+				result.0.push(inner); 
+			}
+			result
+		}
+	}
+
+	// Create a 3rd struct which will contain a reference to your set of data.
+	struct IterNewType<'a> {
+		inner: &'a VecRQScheduledJob,
+		// position used to know where you are in your iteration.
+		pos: usize,
+	}
+	
+	// Now you can just implement the `Iterator` trait on your `IterNewType` struct.
+	impl<'a> Iterator for IterNewType<'a> {
+
+		type Item = &'a RQScheduledJob;
+
+		fn next(&mut self) -> Option<Self::Item> {
+			if self.pos >= self.inner.len() {
+				// No more data to read, so stop here.
+				None
+			} else {
+				// We increment the position of our iterator.
+				self.pos += 1;
+				// We return the current value pointed by our iterator.
+				self.inner.0.get(self.pos - 1)
 			}
 		}
 	}
-	*/
+	
+	impl VecRQScheduledJob {
+		fn iter<'a>(&'a self) -> IterNewType<'a> {
+			IterNewType {
+				inner: self,
+				pos: 0,
+			}
+		}
+	}
 
-	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> Vec<RQScheduledJob> {
+	impl From<Vec<(String,String)>> for VecRQScheduledJob {
+
+		fn from(vec_of_tuple: Vec<(String,String)>) -> Self {
+
+			if vec_of_tuple.len() == 0 {
+				dbg!("Converting from an empty tuple?");
+				return VecRQScheduledJob::new();
+			}
+			dbg!("Step 1: Going from Vec<(String,String)> into VecRQScheduled Job.");
+			dbg!(&vec_of_tuple);
+			//let result: VecRQScheduledJob = VecRQScheduledJob::new();
+			let result = vec_of_tuple.iter().map(_from_tuple_to_rqscheduledjob).collect();
+			result
+		}
+	}
+
+	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledJob {
 		/*
 			Call RQ and request the list of values in "btu_scheduler:job_execution_times"
-
-			This is REALLY messy.  I'm sure there's some better Types and conversions I can do.
-			But it's 2am, and I'm really glad the damn thing is running at all right now!
 		*/
 		let mut redis_conn = pyrq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect();
 
+		println!("Answer from Redis: there are {} scheduled tasks.", redis_result.len());
+		
+		// return VecRQScheduledJob::new();
+
+		let wrapped_result: VecRQScheduledJob = redis_result.into();
+		wrapped_result		
+
+		/*
 		let mut result: Vec<RQScheduledJob> = Vec::new();
 		for baz in redis_result.iter().collect::<Vec<&(String, String)>>() {
 			let timestamp: i64 = baz.1.parse().unwrap();
@@ -270,12 +367,13 @@ pub mod task_scheduler {
 				}	
 			);
 		}
-		result
+		*/
+
 	}
 	
 	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
-		let tasks = rq_get_scheduled_tasks(app_config);
-		for result in tasks {
+		let tasks: VecRQScheduledJob = rq_get_scheduled_tasks(app_config);
+		for result in tasks.iter() {
 			println!("{:#?}", result);
 		};
 	}
@@ -315,9 +413,7 @@ pub mod pyrq {
 	use crate::config::AppConfig;
 	use redis::{Commands, RedisError};
 
-
 	static RQ_JOB_PREFIX: &str = "rq:job";
-
 
 	pub fn get_redis_connection(app_config: &AppConfig) -> Option<redis::Connection> {
 		// Returns a Redis Connection, or None.

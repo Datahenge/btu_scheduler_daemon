@@ -5,10 +5,11 @@
 
 #[cfg(test)]
 mod tests {
-
+	
+	use chrono::{DateTime, Utc, NaiveDateTime};
 	use crate::btu_cron::cron_str_to_cron_str7;
 	use crate::btu_cron::{local_cron_to_utc_datetimes};
-	use chrono::Utc;
+	use crate::task_scheduler::RQScheduledJob;
 
     #[test]
     fn test_cron7_fail() {
@@ -36,12 +37,12 @@ mod tests {
 
 		assert_eq!(
 			cron_str_to_cron_str7(expression_five).unwrap(),
-			"* 30,45 14 ? 1-5 Monday *"
+			"0 30,45 14 ? 1-5 Monday *"
         );
 
 		assert_eq!(
 			cron_str_to_cron_str7(expression_six).unwrap(),
-			"* 30,45 14 ? 1-5 Monday 2021"
+			"0 30,45 14 ? 1-5 Monday 2021"
         );
 
         assert_eq!(
@@ -65,6 +66,27 @@ mod tests {
 			panic!("No values were returned from function 'local_cron_to_utc_datetimes'");
 		}
 		assert_eq!(utc_expected, vector_of_actual[0]);  // compare first value.
+	}
+
+	#[test]
+	fn test_rqscheduledjob_from_strings() {
+		
+		let job_id = "Job12345".to_string();
+		let unix_timestamp: i64 = 1638424800;
+		let datetime_naive = NaiveDateTime::from_timestamp(unix_timestamp, 0);
+		let datetime_utc: DateTime<Utc> = DateTime::from_utc(datetime_naive, Utc);
+
+		// Create manually.
+		let expected = RQScheduledJob {
+			job_id: job_id.clone(),
+			start_datetime_unix: unix_timestamp,
+			start_datetime_utc: datetime_utc
+		};
+
+		// Create from a Tuple of 2 Strings:
+		let actual = RQScheduledJob::from((job_id, unix_timestamp.to_string()));
+
+		assert_eq!(expected, actual);
 	}
 
 	/* Function Not-Yet-Implemented
