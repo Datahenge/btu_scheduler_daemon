@@ -12,6 +12,7 @@ fn cli_show_scheduled_jobs(app_config: &AppConfig) {
 }
 
 fn cli_show_job_details(app_config: &AppConfig, job_id: &str) {
+	println!("Attempting to fetch information about Job with ID = {}", job_id);
 	pyrq::read_job_by_id(app_config, job_id);
 }
 
@@ -79,10 +80,17 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
         )
         .subcommand(SubCommand::with_name("show-job")
             .about("Show all information about a specific RQ Job.")
-            .arg(Arg::with_name("job_id")
-                .help("The identifier of the job in RQ.")
-                .required(true)
-            )
+			.arg(Arg::with_name("job_id")
+				.help("the job_id to examine")
+				.required(true)
+				.takes_value(true)
+				.value_name("JOB_ID")
+			)
+			
+            //.arg(Arg::with_name("job_id")
+			//     .help("The identifier of the job in RQ.")
+            //    .required(true)
+            //)
         );
     ret
 }

@@ -2,4 +2,4 @@
 
 
 # Be sure to pass CLI arguments along into cargo run
-cargo run --bin btu-cli -- $1
+cargo run --bin btu-cli -- "$@"
