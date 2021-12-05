@@ -39,7 +39,10 @@ pub struct AppConfig {
 	pub rq_host: String,
 	pub rq_port: u32,
 	pub scheduler_polling_interval: u64,
-	pub socket_path: String  // Dev Note:  The level of effort to make this a PathBuf or Utf8PathBuf, and incorporate with MutexGuard?  TOO MUCH!
+	pub socket_path: String,  // Dev Note:  The level of effort to make this a PathBuf or Utf8PathBuf, and incorporate with MutexGuard?  TOO MUCH!
+	pub webserver_ip: String,
+    pub webserver_port: u16,
+    pub webserver_token: String
 }
 
 impl AppConfig {
@@ -96,7 +99,10 @@ impl AppConfig {
 			rq_host: "127.0.0.1".to_string(),
 			rq_port: 11000,
 			scheduler_polling_interval: 60,
-			socket_path: "/tmp/btu_scheduler.sock".to_string()
+			socket_path: "/tmp/btu_scheduler.sock".to_string(),
+            webserver_ip: "127.0.0.1".to_string(),
+            webserver_port: 8000,
+            webserver_token: "token: abcd1234".to_string()
 		};
 		let toml_string = toml::to_string(&default_config).unwrap();
 		println!("{}", toml_string);
