@@ -6,9 +6,9 @@ use std::io::Read;
 use clap::{App, AppSettings, Arg, SubCommand};  //, ArgMatches, AppSettings;
 use serde_json::Value   as SerdeJsonValue;
 
-use pyrq_scheduler::config::AppConfig;
-use pyrq_scheduler::task_scheduler;
-use pyrq_scheduler::pyrq;
+use btu_scheduler::config::AppConfig;
+use btu_scheduler::task_scheduler;
+use btu_scheduler::rq;
 
 fn cli_show_scheduled_jobs(app_config: &AppConfig) {
 	task_scheduler::rq_print_scheduled_tasks(app_config);
@@ -16,7 +16,7 @@ fn cli_show_scheduled_jobs(app_config: &AppConfig) {
 
 fn cli_show_job_details(app_config: &AppConfig, job_id: &str) -> () {
 	println!("Attempting to fetch information about Job with ID = {}", job_id);
-	pyrq::read_job_by_id(app_config, job_id);
+	rq::read_job_by_id(app_config, job_id);
 }
 
 fn cli_ping_frappe_web(app_config: &AppConfig) {
@@ -68,6 +68,14 @@ fn cli_bytes_frappe_web(app_config: &AppConfig) {
     println!("HTTP Bytes as UTF-8 String: {}", bytes_as_string);
 }
 
+fn cli_queue_rqjob_immediately(app_config: &AppConfig, rq_job_id: &str) -> () {
+    // 1. Create a Job, based on this Task.
+    rq::enqueue_job_immediate(app_config, rq_job_id);
+}
+
+fn cli_queue_task_immediately(app_config: &AppConfig, btu_task_id: &str) -> () {
+    // 1. Create a Job, based on this Task.
+}
 
 fn main() {
 
@@ -88,7 +96,7 @@ fn main() {
 	let cli_app = add_arguments(
 		App::new("btu-cli")
 		.about("CLI for BTU Scheduler")
-		.version(pyrq_scheduler::get_package_version())  // altnerately, .version(crate_version!())
+		.version(btu_scheduler::get_package_version())  // altnerately, .version(crate_version!())
 		.author("Brian Pond <brian@datahenge.com>")
 		.setting(AppSettings::SubcommandRequiredElseHelp)
 	);
@@ -98,18 +106,22 @@ fn main() {
 	let matches = cli_app.get_matches();
 
 	match matches.subcommand() {
-		("show-scheduled", Some(_)) => {
+		("bytes-webserver", Some(_)) => {
+			cli_bytes_frappe_web(&app_config);
+		},
+		("ping-webserver", Some(_)) => {
+			cli_ping_frappe_web(&app_config);
+		},
+        ("queue-job-now", Some(arg_matches)) => {
+            let job_id: &str = arg_matches.value_of("job_id").unwrap();
+			cli_queue_rqjob_immediately(&app_config, job_id);
+		},
+        ("show-scheduled", Some(_)) => {
 			cli_show_scheduled_jobs(&app_config);
 		},
 		("show-job", Some(arg_matches)) => {
 			let job_id: &str = arg_matches.value_of("job_id").unwrap();
 			cli_show_job_details(&app_config, job_id);
-		},
-		("ping-webserver", Some(_)) => {
-			cli_ping_frappe_web(&app_config);
-		},
-		("bytes-webserver", Some(_)) => {
-			cli_bytes_frappe_web(&app_config);
 		},
 		("", None) => println!("Please specify a subcommand (stamp, extract)"), // If no subcommand was used it'll match the tuple ("", None)
 		_ => unreachable!(), // If all subcommands are defined above, anything else is unreachable!()
@@ -151,6 +163,10 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
         )
         .subcommand(SubCommand::with_name("bytes-webserver")
             .about("Call the Frappe web server's BTU 'bytes_from_caller' RPC function.")
+        )
+        .subcommand(SubCommand::with_name("queue-job-now")
+            .about("Queue a Job for immediate execution.")
         );
+
     ret
 }

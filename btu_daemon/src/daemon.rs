@@ -23,8 +23,8 @@ use mysql::prelude::*;
 use once_cell::sync::Lazy;
 
 // This Crate
-use pyrq_scheduler::{config, task_scheduler, pyrq};
-use pyrq_scheduler::config::AppConfig;
+use btu_scheduler::{config, task_scheduler, rq};
+use btu_scheduler::config::AppConfig;
 
 // Brian's GitHub Issue about this:
 // https://github.com/aeshirey/aeshirey.github.io/issues/5
@@ -112,7 +112,7 @@ fn main() {
     let full_refresh_internal_secs: u32 = temp_app_config.full_refresh_internal_secs;  
     
     // Sanity check.  If we cannot make a connection to Redis RQ, don't even bother continuing.
-    if pyrq::get_redis_connection(&temp_app_config).is_none() {
+    if rq::get_redis_connection(&temp_app_config).is_none() {
         println!("Cannot initialize daemon without Redis RQ connection; closing now.");
         std::process::exit(1);    
     }
@@ -152,7 +152,7 @@ fn main() {
     handles.push(thread_handle_1);
 
     // ----------------
-    // Thread #2:  Repopulate the queue with values every N seconds.
+    // Thread #2:  Repopulate the INTERNAL queue with values every N seconds.
     // ----------------
 
     let counter2 = Arc::clone(&queue_counter);
