@@ -1,6 +1,6 @@
 // Third Party
 
-extern crate clap;
+// use rate clap;
 
 use std::io::Read;
 use clap::{App, AppSettings, Arg, SubCommand};  //, ArgMatches, AppSettings;

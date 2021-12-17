@@ -1,4 +1,6 @@
-# There is 1 library in the workspace (btu), and 2 binary applications (btu, btu_cli)
+# In the members below, 'btu_scheduler' is the library.
+# The 2 binary applications are btu_cli (alias btu), and btu_daemon
+
 [workspace]
 members = [
     "btu_scheduler",
