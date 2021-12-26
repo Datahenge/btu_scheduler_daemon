@@ -14,6 +14,147 @@ pub fn get_package_version() -> &'static str {
     VERSION
 }
 
+pub mod task {
+	
+	use std::fmt;
+	use mysql::prelude::Queryable;
+	use mysql::PooledConn;
+	use std::io::Read;  // mandatory for 'resp.into_reader()' call in get_pickled_function_from_web
+	use crate::config;
+	use crate::config::AppConfig;
+	use crate::rq::RQJob;
+
+	pub struct BtuTask {
+		pub task_key: String,
+		desc_short: String,
+		desc_long: String,
+		arguments: String,
+		path_to_function: String,	// example:  btu.manual_tests.ping_with_wait
+		max_task_duration: String,  // example:  600s
+	}
+
+	// TODO: Need to resolve SQL injection possibility.  Probably means crabbing some more Crates.
+
+	impl BtuTask {
+
+		/// Call ERPNext REST API and acquire pickled Python function as bytes.
+		fn get_pickled_function_from_web(&self, app_config: &AppConfig) -> Result<Vec<u8>, String> {
+
+			let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.get_pickled_task",
+				app_config.webserver_ip, app_config.webserver_port);
+		
+			let wrapped_response = ureq::get(&url)
+				.set("Authorization", &app_config.webserver_token)
+				.set("Content-Type", "application/json")
+				//.set("Content-Type", "application/octet-stream")
+				.send_json(ureq::json!({
+					"task_id": self.task_key
+					})
+				);
+			if wrapped_response.is_err() {
+				return Err(format!("Error in response: {:?}", wrapped_response.err()));
+			}
+
+			let resp = wrapped_response.unwrap();
+			assert!(resp.has("Content-Length"));
+			let len = resp.header("Content-Length")
+				.and_then(|s| s.parse::<usize>().ok()).unwrap();
+		
+			let mut bytes: Vec<u8> = Vec::with_capacity(len);
+			// Read the bytes, up to a maximum:
+			resp.into_reader()
+				.take(10_000_000)
+				.read_to_end(&mut bytes).unwrap();
+		
+			if bytes.len() != len {
+				return Err(format!("Expected {} bytes, but only {} bytes were retrieved.", len, bytes.len()))
+			}
+			println!("HTTP Response from 'get_pickled_task': {} total bytes.", bytes.len());
+			Ok(bytes)
+		}
+
+		pub fn new_from_mysql(task_key: &str, app_config: &AppConfig) -> Self {
+			let mut sql_conn: PooledConn = config::get_mysql_conn(app_config).unwrap();
+
+			let query_syntax = format!("SELECT name AS task_key, desc_short, desc_long,
+			arguments, function_string AS path_to_function,	max_task_duration 
+			FROM `tabBTU Task` WHERE name = '{}'", task_key);
+
+			// Brian: the 2 lines below work too, if you just want a simple MySQL Row.
+			// let foo: mysql::Row = sql_conn.query_first(&query_syntax).unwrap().unwrap();
+			// println!("mysql Row named foo = {:?}", foo);
+
+			let task: BtuTask = sql_conn.query_first(query_syntax).unwrap().map(|row: mysql::Row| {
+					BtuTask {
+						task_key: row.get(0).unwrap(),
+						desc_short: row.get(1).unwrap(),
+						desc_long: row.get(2).unwrap(),
+						arguments:  row.get(3).unwrap(),
+						path_to_function:  row.get(4).unwrap(),
+						max_task_duration:  row.get(5).unwrap()
+					}
+				}).unwrap();
+			task
+		}
+
+		/// Create an RQ Job struct from a BTU Task struct.
+		pub fn to_rq_job(&self, app_config: &AppConfig) -> RQJob {
+
+			let mut new_job: RQJob = RQJob::new_with_defaults();
+			new_job.description = self.desc_long.clone();
+			match self.get_pickled_function_from_web(app_config) {
+				Ok(byte_result) => {
+					new_job.data = byte_result;
+				}
+				Err(error_message) => {
+					panic!("Error while requesting pickled Python function:\n{}", error_message);
+				}
+			}
+			new_job
+		}
+	}
+
+	impl fmt::Display for BtuTask {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+			// This syntax helpfully ignores the leading whitespace on successive lines.
+			write!(f,  "task_key: {}\n\
+						desc_short: {}\n\
+						desc_long: {}\n\
+						arguments: {}\n\
+						path_to_function: {}\n\
+						max_task_duration: {}",
+				self.task_key, self.desc_short,
+				self.desc_long, self.arguments, self.path_to_function, self.max_task_duration
+			)
+		}
+	}
+
+	pub fn query_task_summary(app_config: &AppConfig) -> Option<Vec<(String, String)>> {
+
+		let mut sql_conn: PooledConn;
+		match config::get_mysql_conn(app_config) {
+			Ok(_conn) => {
+				sql_conn = _conn;
+			},
+			Err(err) => {
+				println!("Error while attempting to get connection in 'query_task_summary' : {}", err);
+				return None
+			}
+		}
+		
+		let query_syntax = "SELECT name, desc_short	FROM `tabBTU Task` WHERE docstatus = 1";
+
+		let task_vector: Vec<(String,String)> = sql_conn.query_map(query_syntax, |row: mysql::Row| {
+			(row.get(0).unwrap(), row.get(1).unwrap())
+		}).unwrap();
+
+		if task_vector.len() > 0 {
+			return Some(task_vector)
+		}
+		return None
+	}
+}  // end of task module.
+
 pub mod error {
 	use toml::de::Error		as TomlError;
 	use thiserror::Error	as ThisError;
@@ -273,7 +414,6 @@ pub mod task_scheduler {
 	// But I wrap Vec<RQScheduledJob> in a Newtype, and I can do whatever I want with it.
 
 	pub struct VecRQScheduledJob ( Vec<RQScheduledJob> );
-
 	impl VecRQScheduledJob {
 
 		fn new() -> Self {
@@ -369,7 +509,6 @@ pub mod task_scheduler {
 		*/
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect();
-		// println!("Answer from Redis: there are {} scheduled tasks.", redis_result.len());
 		let wrapped_result: VecRQScheduledJob = redis_result.into();
 		wrapped_result		
 	}
@@ -393,9 +532,6 @@ pub mod task_scheduler {
 		meta={'foo': 'bar'},        # Arbitrary pickleable data on the job itself
 		use_local_timezone=False    # Interpret hours in the local timezone
 	)
-
-	read_task_from_sql()
-
 
 	local_cron_to_utc_cron() {
 

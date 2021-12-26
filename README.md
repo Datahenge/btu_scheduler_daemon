@@ -1,4 +1,4 @@
-## BTU Scheduler Daemon
+## BTU Scheduler
 
 ### Purpose
 
@@ -14,26 +14,31 @@ Read [here](WHY.md) for more about why I needed to create this application.
 
 ### Prerequisites
 
-* Linux 64bit operating system.  I tested this with Debian 11 Bullseye.
-* This daemon isn't particularly useful without its companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
+* Linux 64-bit operating system.  I tested this with Debian 11 Bullseye.
+* A companion Frappe application: [Background Tasks Unleashed (BTU)](https://github.com/Datahenge/btu)
 
-(*Note to Frappe Framework users: This scheduler is -not- a Python application.  It is a native Linux application: a 64-bit binary executable.  The source code was written in [The Rust Programming Language](https://www.rust-lang.org/).  This application coexists with the Frappe web server)*
+(*Note to Frappe Framework users: The BTU Scheduler daemon and CLI are -not- Python applications.  They are native Linux applications: 64-bit binary executables.  The source code was written in [The Rust Programming Language](https://www.rust-lang.org/).  This application coexists with the Frappe web server)*
 
 ### Installation
-1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).
-2. Save this executable somewhere on your Frappe web server (*typical locations for third-party Linux programs are `/usr/local/bin`*)
+1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).  There are 2 binary applications:
+
+  * `btu-daemon`:  Background daemon that interacts with Frappe BTU and [Python RQ](https://python-rq.org/).
+  * `btu`:  Command line interface for interacting with the daemon and RQ database.
+
+2. Save the executables somewhere on your Frappe web server (*typical locations for third-party Linux programs are `/usr/local/bin`*)
+3. Make sure the executables are on your Path, or make symlinks to them.
 
 ### Configuration
-Regardless of where you save the executable, you must create and maintain a TOML configuration file here:
+Regardless of where you save the executables, you must create and maintain a TOML configuration file here:
 ```
-/etc/btu_scheduler/.btu_scheduler.toml
+/etc/btu_scheduler/btu_scheduler.toml
 ```
 
-**Note**: This is a hidden file (notice the leading '.' in front of the file name).  I don't believe in security through obfuscation; I may change my mind about this convention.
+Below is a sample of what this configuration file should look like.  You **must** edit this file, and enter your own environment's credentials and information.
 
 ```toml
 # This is the TOML configuration file for the BTU Scheduler Daemon
-name = "BTU Schedule Daemon"
+name = "BTU Scheduler Daemon"
 full_refresh_internal_secs = 90
 scheduler_polling_interval=60
 
@@ -45,9 +50,20 @@ mysql_database = "foo"
 
 rq_host = "127.0.0.1"
 rq_port = 11000
+
+socket_path = "/tmp/btu_scheduler.sock"
+webserver_ip = "127.0.0.1"
+webserver_port = 8000
+webserver_token = "token abcdef123456789:abcdef123456789"
 ```
 
+* The `mysql_` keys are for your Frappe/ERPNext MariaDB database.
+* The `rq_` keys are for your Redis Queue database.
+* The `socket_path` is for the BTU background daemon.  I recommend just using the default value shown above.
+* The `webserver_` keys are how BTU cannot to your ERPNext web server.  The `webserver_token` is the token for the ERPNext user that will act as a "service account" for BTU.
+
 ### Usage
+
 #### Testing
 To test the application, you may want to begin by running manually from a shell:
 ```

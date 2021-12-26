@@ -20,5 +20,8 @@ chrono-tz = "0.6.0"
 mysql = "21.0.2"
 redis = "0.21.4"
 serde = { version = "1.0.130", features = ["derive"] }
+syn = "1.0.83"
 thiserror = "1.0.30"
 toml = "0.5"
+ureq = { version = "2.3.1", features = ["json"] }
+uuid = { version = "0.8.2", features = ["serde", "v4"] }
