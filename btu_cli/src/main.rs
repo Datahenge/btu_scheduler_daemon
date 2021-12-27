@@ -43,8 +43,8 @@ fn main() {
 	let matches = cli_app.get_matches();
 
 	match matches.subcommand() {
-		("bytes-webserver", Some(_)) => {
-			cli_bytes_frappe_web(&app_config);
+		("test-pickler", Some(_)) => {
+			cli_btu_test_pickler(&app_config);
 		},
 		("list-jobs", Some(_)) => {
 			cli_list_jobs(&app_config);
@@ -97,8 +97,8 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
 
     // Add some subcommands for Clap.
     let ret = ret
-        .subcommand(SubCommand::with_name("bytes-webserver")
-            .about("Call the Frappe web server's BTU 'bytes_from_caller' RPC function.")
+        .subcommand(SubCommand::with_name("test-pickler")
+            .about("Call the Frappe web server's BTU 'test-pickler' RPC function.")
         )
         .subcommand(SubCommand::with_name("list-jobs")
             .about("List all known Jobs in the Redis Queue.")
@@ -152,9 +152,9 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
 */
 
 
-fn cli_bytes_frappe_web(app_config: &AppConfig) {
+fn cli_btu_test_pickler(app_config: &AppConfig) {
     // Function calls the Frappe web server, and asks for 'Hello World' in bytes.
-    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.bytes_from_caller",
+    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_pickler",
         app_config.webserver_ip, app_config.webserver_port);
 
     let resp = ureq::get(&url)

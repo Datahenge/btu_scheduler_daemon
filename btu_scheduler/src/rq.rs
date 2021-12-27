@@ -20,7 +20,7 @@ pub struct RQJob {
 	enqueued_at: Option<String>,
 	exc_info: Option<String>,
 	last_heartbeat: String,
-	meta: Vec<u8>,
+	meta: Option<Vec<u8>>,
 	origin: String,
 	result_ttl: Option<String>,
 	started_at: Option<String>,
@@ -57,7 +57,7 @@ impl RQJob {
 			enqueued_at: None,  // not initially populated
 			exc_info: None,
 			last_heartbeat: chrono::offset::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-			meta: Vec::new(),
+			meta: None,
 			origin: "default".to_owned(),  // begin with the queue named 'default'
 			result_ttl: None,
 			started_at: None,
@@ -90,7 +90,9 @@ impl RQJob {
 		// In the case below, an Array of Tuples, where the Tuple is (&str, &String)
 		let _: () = redis_conn.hset_multiple(&self.job_key, &values).expect("Failed to execute HSET.");
 		let _: () = redis_conn.hset(&self.job_key, "data", &self.data).expect("failed to execute HSET");
-		let _: () = redis_conn.hset(&self.job_key, "meta", &self.meta).expect("failed to execute HSET");
+		if self.meta.is_some() {
+			let _: () = redis_conn.hset(&self.job_key, "meta", &self.meta.as_ref().unwrap()).expect("failed to execute HSET");
+		}
 	}
 }
 
@@ -105,6 +107,10 @@ impl fmt::Display for RQJob {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
 		// This syntax helpfully ignores the leading whitespace on successive lines.
+		let mut meta_length: usize = 0;
+		if self.meta.is_some() {
+			meta_length = self.meta.as_ref().unwrap().len()
+		}
 		write!(f,  "job_key: {}\n\
 					job_key_short: {}\n\
 					created_at: {}\n\
@@ -123,7 +129,7 @@ impl fmt::Display for RQJob {
 			",
 			self.job_key, self.job_key_short,  self.created_at, self.data.len(), 
 			self.description, self.ended_at, self.enqueued_at,
-			self.last_heartbeat, self.origin, self.meta.len(), self.result_ttl,  
+			self.last_heartbeat, self.origin, meta_length, self.result_ttl,  
 			self.started_at, self.status, self.timeout, self.worker_name
 		)
 	}
@@ -266,7 +272,7 @@ pub fn read_job_by_id(app_config: &AppConfig, job_id: &str) -> Result<RQJob, std
 			}
 
 			// Kind of wonky: Asking if the length of the hashmap one of [11, 12, 13]?
-			if ! vec![11, 12, 13].contains(&rq_hashmap.len()) {
+			if ! vec![11, 12, 13, 14].contains(&rq_hashmap.len()) {
 				let message: String = format!("Expected Redis to return a Hashmap with 11 to 13 keys, but found {} keys instead.",
 				                              rq_hashmap.len());
 				return Err(std::io::Error::new(std::io::ErrorKind::Other, message));											  
@@ -284,7 +290,14 @@ pub fn read_job_by_id(app_config: &AppConfig, job_id: &str) -> Result<RQJob, std
 				last_heartbeat: String::from_utf8_lossy(rq_hashmap.get("last_heartbeat").unwrap()).to_string(),
 				origin: String::from_utf8_lossy(rq_hashmap.get("origin").unwrap()).to_string(),
 				description: String::from_utf8_lossy(rq_hashmap.get("description").unwrap()).to_string(),
-				meta: rq_hashmap.get("meta").unwrap().to_owned(),
+				meta: match rq_hashmap.get("meta") {
+					Some(value) => {
+						Some(value.to_owned())
+					},
+					_ => {
+						None
+					}
+				},
 				started_at: hashmap_value_to_optstring(&rq_hashmap, "started_at"),
 				created_at: hashmap_value_to_utcdatetime(&rq_hashmap, "created_at").unwrap(),
 				timeout: match rq_hashmap.get("timeout") {

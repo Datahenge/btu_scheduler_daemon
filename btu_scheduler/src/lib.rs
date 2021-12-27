@@ -24,14 +24,35 @@ pub mod task {
 	use crate::config::AppConfig;
 	use crate::rq::RQJob;
 
+	use serde::Deserialize;
+	#[derive(Deserialize, Debug)]
+	struct FrappeApiMessage {
+		message: Vec<u8>
+	}
+
 	pub struct BtuTask {
 		pub task_key: String,
 		desc_short: String,
 		desc_long: String,
-		arguments: String,
+		arguments: Option<String>,
 		path_to_function: String,	// example:  btu.manual_tests.ping_with_wait
 		max_task_duration: String,  // example:  600s
 	}
+
+	/*
+	impl Default for BtuTask {
+		fn default() -> Self {
+			BtuTask {
+				task_key: "".to_owned(),
+				desc_short: "".to_owned(),
+				desc_long: "".to_owned(),
+				arguments: None,
+				path_to_function: "".to_owned(),
+				max_task_duration: "600s".to_owned()
+			}
+		}
+	}
+	*/
 
 	// TODO: Need to resolve SQL injection possibility.  Probably means crabbing some more Crates.
 
@@ -45,8 +66,7 @@ pub mod task {
 		
 			let wrapped_response = ureq::get(&url)
 				.set("Authorization", &app_config.webserver_token)
-				.set("Content-Type", "application/json")
-				//.set("Content-Type", "application/octet-stream")
+				.set("Content-Type", "application/json")  // json because that's what we're sending 'task_id' as below.
 				.send_json(ureq::json!({
 					"task_id": self.task_key
 					})
@@ -56,10 +76,17 @@ pub mod task {
 			}
 
 			let resp = wrapped_response.unwrap();
+			
 			assert!(resp.has("Content-Length"));
 			let len = resp.header("Content-Length")
 				.and_then(|s| s.parse::<usize>().ok()).unwrap();
 		
+			// Option #1 : Try reading as an ERPNext message.
+			let response_json: FrappeApiMessage = resp.into_json().unwrap();
+			// println!("Reponse as JSON: {:?}", response_json.message);
+			let bytes: Vec<u8> = response_json.message;
+			return Ok(bytes);
+
 			let mut bytes: Vec<u8> = Vec::with_capacity(len);
 			// Read the bytes, up to a maximum:
 			resp.into_reader()
@@ -70,6 +97,7 @@ pub mod task {
 				return Err(format!("Expected {} bytes, but only {} bytes were retrieved.", len, bytes.len()))
 			}
 			println!("HTTP Response from 'get_pickled_task': {} total bytes.", bytes.len());
+			println!("Bytes as JSON: ");
 			Ok(bytes)
 		}
 
@@ -78,22 +106,47 @@ pub mod task {
 
 			let query_syntax = format!("SELECT name AS task_key, desc_short, desc_long,
 			arguments, function_string AS path_to_function,	max_task_duration 
-			FROM `tabBTU Task` WHERE name = '{}'", task_key);
+			FROM `tabBTU Task` WHERE name = '{}' LIMIT 1;", task_key);
 
-			// Brian: the 2 lines below work too, if you just want a simple MySQL Row.
-			// let foo: mysql::Row = sql_conn.query_first(&query_syntax).unwrap().unwrap();
-			// println!("mysql Row named foo = {:?}", foo);
+			// OPTION 1: Working 1 row at a time.
+			/*
+			let row: mysql::Row = sql_conn.query_first(&query_syntax).unwrap().unwrap();
+			println!("mysql Row named foo = {:?}", row);
 
+			let mut task: BtuTask = BtuTask::default();
+			task.task_key = row.get(0).unwrap();
+			// Short Description
+			if let Some(row_outer) = row.get_opt(1) {
+				if let Ok(row_inner) = row_outer {
+					task.desc_short = row_inner;
+				}
+			}
+			// Long Description
+			if let Some(row_outer) = row.get_opt(2) {
+				if let Ok(row_inner) = row_outer {
+					task.desc_long = row_inner;
+				}
+			}
+			//task.arguments =  row.get(3).unwrap();
+			//task.path_to_function = row.get(4).unwrap();
+			//task.max_task_duration = row.get(5).unwrap();
+			*/
+
+			/*
+				Option 2:  Using a map.
+				NOTE: The use of 'get_opt()' is necessary to handle SQL rows containing NULLs, instead of the expected datatype.
+			*/
 			let task: BtuTask = sql_conn.query_first(query_syntax).unwrap().map(|row: mysql::Row| {
 					BtuTask {
 						task_key: row.get(0).unwrap(),
-						desc_short: row.get(1).unwrap(),
-						desc_long: row.get(2).unwrap(),
-						arguments:  row.get(3).unwrap(),
-						path_to_function:  row.get(4).unwrap(),
-						max_task_duration:  row.get(5).unwrap()
+						desc_short: row.get_opt(1).unwrap_or(Ok("".to_owned())).unwrap_or("".to_owned()),
+						desc_long: row.get_opt(2).unwrap_or(Ok("".to_owned())).unwrap_or("".to_owned()),
+						arguments: row.get_opt(3).unwrap_or(Ok(None)).unwrap_or(None),
+						path_to_function:  row.get(4).unwrap_or("".to_owned()),
+						max_task_duration: row.get_opt(5).unwrap_or(Ok("600s".to_owned())).unwrap_or("600s".to_owned()),
 					}
 				}).unwrap();
+			println!("{}", task);
 			task
 		}
 
@@ -120,7 +173,7 @@ pub mod task {
 			write!(f,  "task_key: {}\n\
 						desc_short: {}\n\
 						desc_long: {}\n\
-						arguments: {}\n\
+						arguments: {:?}\n\
 						path_to_function: {}\n\
 						max_task_duration: {}",
 				self.task_key, self.desc_short,
