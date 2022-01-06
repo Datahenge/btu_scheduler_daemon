@@ -1,4 +1,17 @@
-// Dev Note: No need to create a 'config' mod { } here, since we're in a separate physical file.
+/* Dev Notes:
+
+  * No need to create a 'config' mod { } here, since we're in a separate physical file.
+  * Do not import mysql like this: 'use mysql::*;'.  Doing so will override certain default types, like Error.
+
+*/
+
+use std::{fmt, fs};
+use std::path::{Path};
+use serde::{Deserialize, Serialize};
+use mysql::{Opts, Pool};
+use crate::config::error::ConfigError;
+
+static CONFIG_FILE_PATH: &'static str = "/etc/btu_scheduler/btu_scheduler.toml";
 
 mod error {
 
@@ -18,19 +31,41 @@ mod error {
 	}
 }
 
-use std::{fmt, fs};
-use std::path::{Path};
-use serde::{Deserialize, Serialize};
-// use mysql::*;			// WARNING: Do -not- import mysql like this.  It will override default types, like Error.
-use mysql::{Opts, Pool};
-use crate::config::error::ConfigError;
+/** 
+	A custom type 'MyTz' for implementing Serialize and Deserialize.
 
 
-static CONFIG_FILE_PATH: &'static str = "/etc/btu_scheduler/btu_scheduler.toml";
+pub struct MyTz ( chrono_tz::Tz );  // tuple struct: See article https://rust-unofficial.github.io/patterns/patterns/behavioural/newtype.html
 
+impl MyTz {
+	pub fn new(tz: chrono_tz::Tz) -> MyTz {
+		MyTz(tz)
+	}
+}
+
+impl Serialize for MyTz {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+		// 3 is the number of fields in the struct.
+	 	let mut tup = serializer.serialize_tuple(1)?;
+		tup.serialize_element(&self.0.to_string())?;  // Unsure if this is reasonable, but converting the TZ to a string seems the easiest approach to Serialization.
+		tup.end()
+    }
+}
+impl<'a> Deserialize<'a> for MyTz {
+    fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
+        where D: Deserializer<'a>
+    {
+		deserializer.deserialize_string(MyTz::new(D))
+    }
+}
+
+*/
 #[derive(Deserialize, Serialize)]
 pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
+	pub time_zone_string: String,
 	mysql_user: String,
 	mysql_password: String,
 	mysql_host: String,
@@ -91,6 +126,7 @@ impl AppConfig {
 		println!("Below is an example of the file's contents:\n");
 		let default_config = AppConfig {
 			full_refresh_internal_secs: 180,
+			time_zone_string: "US/Eastern".to_string(),
 			mysql_user: "root".to_string(),
 			mysql_password: "foo".to_string(),
 			mysql_host: "127.0.0.1".to_string(),

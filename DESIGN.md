@@ -1,4 +1,4 @@
-#### Purpose and Functions of the Daemon
+### Purpose and Functions of the Daemon
 
 1. Listen on a Unix Domain Socket for BTU Task Schedule Identifiers.
 	* Each is added to an internal queue.
@@ -18,6 +18,23 @@ This is a multi-threaded, concurrent application.  Note that it is **not** an *a
 
 * This process binds its socket to a known location and accepts incoming  connection requests from clients. 
 * For each connection request that is received, a new socket is created that is used to communicate with the peer socket (*peer socket* = the socket at the other end of the connection, in this case the socket created by some client process).
+
+##### Message Format
+Client messages to the socket server are UTF-8 strings, which represent JSON as follows:
+```
+{
+    'request_type': request_type.name,
+    'request_content': content
+}
+```
+
+As an example, the socket Client might send a 'ping' request, which looks like this:
+```
+{
+    'request_type': 'ping',
+    'request_content': None
+}
+```
 
 #### Sub-Thread 1: Internal Queue Consumer
 
@@ -43,15 +60,21 @@ This thread effectively replaces the functionality in the excellent [rq-schedule
 ### Other artifacts
 #### Internal Queue
 
-* Basically, a Vector of String.  Where each String represents a BTU Task Schedule that should be written to Python RQ.
-* But instead of `Vector<String>`, I've opted to use `VecDeque`
+* Basically, a Vector of String.  Where each String represents a `BTU Task Schedule` identifier, that should be written to Python RQ.
+* Note that instead of `Vector<String>`, I've opted to use `VecDeque`
 
 How is this queue filled?
 
-* Once, when the daemon is called.
+* On the initial startup of the BTU Scheduler daemon.
 * Every N minutes, the daemon performs a "full refresh" using latest SQL rows in `tabBTU Task Schedule`
-* If the daemon's Unix Domain Socket gets a call from a client, with a BTU Task Schedule Identifier.
+* If the daemon's Unix Domain Socket listener gets a call from a client, with a BTU Task Schedule Identifier.
 
-### TODO List
+TODO: Would be nice if the queue was a unique set of values (no duplicate Task Schedule strings)
 
-* Would be great if the queue was a unique set of values (no duplicate strings)
+## Frappe Web Server Endpoints
+When installed on a Frappe site, the **BTU App** exposes the following HTTP endpoints for the BTU Scheduler:
+
+* `get_pickled_task(task_id)`
+* `test_ping()`
+* `test_hello_world_bytes()`
+* `test_function_ping_now_bytes()`

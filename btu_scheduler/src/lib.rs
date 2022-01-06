@@ -23,8 +23,9 @@ pub mod task {
 	use crate::config;
 	use crate::config::AppConfig;
 	use crate::rq::RQJob;
-
 	use serde::Deserialize;
+
+	// This is the response from an HTTP call to Frappe REST API.
 	#[derive(Deserialize, Debug)]
 	struct FrappeApiMessage {
 		message: Vec<u8>
@@ -39,23 +40,7 @@ pub mod task {
 		max_task_duration: String,  // example:  600s
 	}
 
-	/*
-	impl Default for BtuTask {
-		fn default() -> Self {
-			BtuTask {
-				task_key: "".to_owned(),
-				desc_short: "".to_owned(),
-				desc_long: "".to_owned(),
-				arguments: None,
-				path_to_function: "".to_owned(),
-				max_task_duration: "600s".to_owned()
-			}
-		}
-	}
-	*/
-
 	// TODO: Need to resolve SQL injection possibility.  Probably means crabbing some more Crates.
-
 	impl BtuTask {
 
 		/// Call ERPNext REST API and acquire pickled Python function as bytes.
@@ -75,21 +60,21 @@ pub mod task {
 				return Err(format!("Error in response: {:?}", wrapped_response.err()));
 			}
 
-			let resp = wrapped_response.unwrap();
+			let web_server_resp = wrapped_response.unwrap();
 			
-			assert!(resp.has("Content-Length"));
-			let len = resp.header("Content-Length")
+			assert!(web_server_resp.has("Content-Length"));
+			let len = web_server_resp.header("Content-Length")
 				.and_then(|s| s.parse::<usize>().ok()).unwrap();
 		
 			// Option #1 : Try reading as an ERPNext message.
-			let response_json: FrappeApiMessage = resp.into_json().unwrap();
+			let response_json: FrappeApiMessage = web_server_resp.into_json().unwrap();
 			// println!("Reponse as JSON: {:?}", response_json.message);
 			let bytes: Vec<u8> = response_json.message;
 			return Ok(bytes);
 
 			let mut bytes: Vec<u8> = Vec::with_capacity(len);
 			// Read the bytes, up to a maximum:
-			resp.into_reader()
+			web_server_resp.into_reader()
 				.take(10_000_000)
 				.read_to_end(&mut bytes).unwrap();
 		
@@ -249,7 +234,7 @@ pub mod error {
 
 pub mod task_scheduler {
 
-	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
+	use chrono::{DateTime, Local, TimeZone, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
@@ -436,20 +421,33 @@ pub mod task_scheduler {
 	#[derive(Debug, PartialEq, Clone)]
 	pub struct RQScheduledJob {
 		pub job_id: String,
-		pub start_datetime_unix: i64,
-		pub start_datetime_utc: DateTime<Utc>
+		pub next_datetime_unix: i64,
+		pub next_datetime_utc: DateTime<Utc>,
+		// pub next_datetime_local: DateTime<chrono_tz::Tz>
 	}
 
 	fn _from_tuple_to_rqscheduledjob(tuple: &(String, String)) -> Result<RQScheduledJob, std::io::Error> {
 		/* 
-			Use the tuple with 2 Strings to construct an RQScheduledJob struct.
-			Cannot think of a reason why I should move/consume the tuple?  So I won't.
+			The tuple argument consists of 2 Strings: JobId and Unix Timestamp.
+			Using this information, we can build an RQScheduledJob struct.
+			There is no reason to consume the tuple; so accepting it as a reference.
 		*/
 		let timestamp: i64 = tuple.1.parse::<i64>().unwrap();  // coerce the second String into an i64, using "turbofish" syntax
+		let utc_datetime:  DateTime<Utc> = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc);
+		/*
+		let local_time_zone: chrono_tz::Tz = match tuple.2.parse() {
+			Ok(v) => v,
+			Err(e) => {
+				let new_error = std::io::Error::new(std::io::ErrorKind::Other, "Could not match local time zone to chrono Tz.");
+				return Err(new_error)
+			}
+		};
+		 */
 		Ok(RQScheduledJob {
 			job_id: tuple.0.clone(),
-			start_datetime_unix: timestamp,
-			start_datetime_utc: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc)
+			next_datetime_unix: timestamp,
+			next_datetime_utc: utc_datetime
+			// next_datetime_local: local_time_zone.from_utc_datetime(&utc_datetime.naive_utc())
 		})
 	}
 

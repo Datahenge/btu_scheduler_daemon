@@ -8,6 +8,7 @@
 		"rust-analyzer.inlayHints.chainingHints": false,
 		"rust-analyzer.inlayHints.parameterHints": false,
 		"rust-analyzer.inlayHints.typeHints": false,
+		"rust-analyzer.updates.askBeforeDownload": true,
 		"rust-analyzer.server.path": "/opt/bin/rust-analyzer/rust-analyzer",
 		"rust-analyzer.trace.extension": true,
 		"search.exclude": {

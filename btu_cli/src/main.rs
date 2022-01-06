@@ -52,9 +52,6 @@ fn main() {
 		("list-tasks", Some(_)) => {
 			cli_list_tasks(&app_config);
 		},
-		("ping-webserver", Some(_)) => {
-			cli_ping_frappe_web(&app_config);
-		},
 		("print-config", Some(_)) => {
 			cli_print_config(&app_config);
 		},
@@ -73,7 +70,10 @@ fn main() {
 			let job_id: &str = arg_matches.value_of("job_id").unwrap();
 			cli_show_job_details(&app_config, job_id);
 		},
-		("", None) => println!("Please specify a subcommand (stamp, extract)"), // If no subcommand was used it'll match the tuple ("", None)
+		("test-ping", Some(_)) => {
+			cli_ping_frappe_web(&app_config);
+		},
+        ("", None) => println!("Please specify a subcommand (stamp, extract)"), // If no subcommand was used it'll match the tuple ("", None)
 		_ => unreachable!(), // If all subcommands are defined above, anything else is unreachable!()
 	}
 }
@@ -106,8 +106,8 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
         .subcommand(SubCommand::with_name("list-tasks")
             .about("List all Submitted Tasks stored in the Frappe MariaDB database.")
         )
-        .subcommand(SubCommand::with_name("ping-webserver")
-            .about("Call the Frappe web server's BTU 'ping_from_caller' RPC function.")
+        .subcommand(SubCommand::with_name("test-ping")
+            .about("Call the Frappe web server's BTU 'test_ping' RPC function.")
         )
         .subcommand(SubCommand::with_name("print-config")
             .about("Print the TOML configuration file contents in the terminal.")
@@ -221,7 +221,7 @@ fn cli_list_tasks(app_config: &AppConfig) {
 
 
 fn cli_ping_frappe_web(app_config: &AppConfig) {
-    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.ping_from_caller",
+    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_ping",
         app_config.webserver_ip, app_config.webserver_port);
     // println!("Calling URL: {}", url);
     let body: Request = ureq::get(&url)

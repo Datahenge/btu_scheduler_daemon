@@ -1,6 +1,6 @@
 ### Dependency Documentation
 
-The following provides a brief explanation of the 3rd party crates I used from https://crates.io
+The following provides a brief explanation of the third-party crates I used from https://crates.io
 
 #### chrono
 https://docs.rs/chrono
