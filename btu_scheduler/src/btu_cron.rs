@@ -37,26 +37,27 @@ pub fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, Cr
 }
 
 
-pub fn local_cron_to_utc_datetimes(cron_expression_string: &str,
-	                               cron_timezone: Tz,
-	                               number_of_results: usize) -> Result<Vec<DateTime<Utc>>, CronError> {
+pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
+	                            cron_timezone: Tz,
+								from_utc_datetime: Option<DateTime<Utc>>,
+	                            number_of_results: usize) -> Result<Vec<DateTime<Utc>>, CronError> {
 	/*
-		Based on a cron string, what is the next, scheduled Datetime?
+		Given a cron string and Time Zone, what are the next set of UTC Datetime values?
 		Documentation: https://docs.rs/cron/0.9.0/cron
 	*/
 
-	/* NOTE 1:  This is a VERY simplistic implementation of a valid list of UTC DateTimes.
+	/* NOTE 1:  This is a VERY simplistic implementation.
 	            What is truly required is something that handles Daylight Savings and time shifts.
 				But it's good enough for today.
 
 	   NOTE 2:  Rather than returning a Vector of UTC Datetimes, it would be -better- to return an Iterator.
-				I don't know how to do that in Rust (yet).  One step at a time.
+				However, I don't know how to do that with Rust (yet).  One step at a time.
 	*/
 	
 	let cron7_expression = cron_str_to_cron_str7(cron_expression_string)?;
 	let schedule = Schedule::from_str(&cron7_expression).unwrap();  // Schedule requires a 7-element cron expression.
 
-	let mut virtual_datetimes: Vec<DateTime<Utc>> = Vec::new();
+	let mut result: Vec<DateTime<Utc>> = Vec::new();
 
 	/* 	The initial results below will be UTC datetimes.  Because that is what Schedule outputs.
 		Workaround:
@@ -68,17 +69,17 @@ pub fn local_cron_to_utc_datetimes(cron_expression_string: &str,
 		Yes, this will completely break during Daylight Savings.  For today, it's 80/20.
 	*/
 
-	for utc_datetime in schedule.upcoming(Utc).take(number_of_results) {
-    	// dbg!("Next Loop", utc_datetime);
+	// Calculate results using argument 'from_utc_datetime', otherwise the current UTC datetime.
+	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(number_of_results) {
 		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(utc_datetime.timestamp(), 0);
 		// dbg!(naive_datetime);
 		let tz_aware = cron_timezone.from_local_datetime(&naive_datetime).unwrap();
 		// dbg!(tz_aware);
 		let new_utc_datetime: DateTime<Utc> = DateTime::<Utc>::from_utc(tz_aware.naive_utc(), Utc);
 		// dbg!(new_utc_datetime);
-		virtual_datetimes.push(new_utc_datetime);
+		result.push(new_utc_datetime);
 	}
-	Ok(virtual_datetimes)
+	Ok(result)
 
 }  // end of function
 

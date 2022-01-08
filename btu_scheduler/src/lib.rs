@@ -223,9 +223,29 @@ pub mod task {
 
 pub mod task_schedule {
 	
+	use std::convert::TryFrom;
+	use chrono_tz::Tz;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
 	use crate::config;
+
+	// Newtype Pattern:
+	pub struct MyTz(Tz);
+	
+	impl TryFrom<String> for MyTz {
+		type Error = String;
+		fn try_from(any_string: String) -> Result<Self, Self::Error> {
+			let _: Tz = match any_string.parse() {
+				Ok(v) => {
+					return Ok(MyTz(v));
+				}
+				Err(_) => {
+					let new_error = format!("Cannot convert string '{}' to a chrono Time Zone.", any_string);
+					return Err(new_error);
+				}
+			};
+		}
+	}
 
 	// Deliberately excluding SQL columns that don't matter for this program.
 	#[derive(Debug, Clone)]
@@ -251,14 +271,24 @@ pub mod task_schedule {
 
 		// 2. Run query, and map result into a new Result<Option<BtuTaskSchedule>>
 		//    TODO: Investigate resolving SQL injection.  Probably means finding a helpful 3rd party crate.
-		let query_syntax = format!("SELECT name, task, task_description, enabled, queue_name,
-		redis_job_id, argument_overrides, schedule_description, cron_string
-		FROM `tabBTU Task Schedule` WHERE name = '{}'", task_schedule_id);
+		let query_syntax = format!("SELECT TaskSchedule.name, TaskSchedule.task, TaskSchedule.task_description,
+		TaskSchedule.enabled, TaskSchedule.queue_name, TaskSchedule.redis_job_id, TaskSchedule.argument_overrides,
+		TaskSchedule.schedule_description, TaskSchedule.cron_string, Configuration.value AS cron_time_zone
+
+		FROM `tabBTU Task Schedule` AS TaskSchedule
+
+		INNER JOIN `tabSingles`	AS Configuration
+		ON Configuration.doctype = 'BTU Configuration'
+		AND Configuration.`field` = 'cron_time_zone'
+		
+		WHERE TaskSchedule.name = '{}' LIMIT 1;", task_schedule_id);
 
 		/* TODO: exec_map appears entirely broken.
 			thread '<unnamed>' panicked at 'Could not retrieve alloc::string::String from Value', 
 			/home/sysop/.cargo/registry/src/github.com-1ecc6299db9ec823/mysql_common-0.27.5/src/value/convert/mod.rs:175:23
 		*/
+
+		// TODO: Error handling if the query fails.
 		let task_schedules: Vec<BtuTaskSchedule> = sql_conn
 			.query_map(query_syntax, |row: mysql::Row| {
 				BtuTaskSchedule {
@@ -271,20 +301,20 @@ pub mod task_schedule {
 					argument_overrides: row.get(6).unwrap(),
 					schedule_description:row.get(7).unwrap(),
 					cron_string:  row.get(8).unwrap(),
-					cron_timezone: app_config.tz().unwrap()
+					cron_timezone: row.get::<String, _>(9).unwrap().parse().unwrap()
 				}
 			}).unwrap();
 	
-		// Get the first BtuTaskSchedule struct in the vector.
-		// Because 'name' is the MySQL table's Primary Key, there is either 0 or 1 values.
+		// There is either exactly 1 SQL row, or zero.
+		// Therefore the syntax below uses 'next()' to either fetch it, or return a None.
 		if let Some(btu_task_schedule) =  task_schedules.iter().next() {
 			Some(btu_task_schedule.to_owned())
 		} else {
 			None  // no such record in the MySQL table.
 		}       
 	}
-
 }
+
 
 pub mod scheduler {
 
@@ -321,6 +351,14 @@ pub mod scheduler {
 		}
 	}
 
+	impl From<(String,String)> for RQScheduledTask {
+
+		// TODO: Change to a Result with some kind of Error
+		fn from(tuple: (String, String)) -> RQScheduledTask {
+			_from_tuple_to_rqscheduledtask(&tuple).unwrap()
+		}
+	}
+
 	fn _from_tuple_to_rqscheduledtask(tuple: &(String, String)) -> Result<RQScheduledTask, std::io::Error> {
 		/* 
 			The tuple argument consists of 2 Strings: JobId and Unix Timestamp.
@@ -345,6 +383,11 @@ pub mod scheduler {
 			// next_datetime_local: local_time_zone.from_utc_datetime(&utc_datetime.naive_utc())
 		})
 	}
+
+	// NOTE:  Below is the 'Newtype Pattern'.
+	// It's useful when you need implement Traits you aren't normally allowed to: because you don't own either
+	// the Trait or Type.  In this case, I don't the "From" or "FromIterator" traits, nor the "Vector" type.
+	// But I wrap Vec<RQScheduledTask> in a Newtype, and I can do whatever I want with it.
 
 	pub struct VecRQScheduledTask ( Vec<RQScheduledTask> );
 
@@ -469,8 +512,10 @@ pub mod scheduler {
 			   So I think the benefits of waiting to create RQ Jobs outweights the drawbacks.
 		*/
 		print!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
-		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::local_cron_to_utc_datetimes(&task_schedule.cron_string,
-			                                                                          task_schedule.cron_timezone, 10).unwrap();
+		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::tz_cron_to_utc_datetimes(&task_schedule.cron_string,
+			                                                                       task_schedule.cron_timezone,
+																				   None,
+																				   10).unwrap();
 		if next_runtimes.len() == 0 {
 			println!("ERROR: Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
 			return ()
@@ -560,21 +605,6 @@ pub mod scheduler {
 	}
 
 
-
-	impl From<(String,String)> for RQScheduledTask {
-
-		// TODO: Change to a Result with some kind of Error
-		fn from(tuple: (String, String)) -> RQScheduledTask {
-			_from_tuple_to_rqscheduledtask(&tuple).unwrap()
-		}
-	}
-
-	// NOTE:  Below is the 'Newtype Pattern'.
-	// It's useful when you need implement Traits you aren't normally allowed to: because you don't own either
-	// the Trait or Type.  In this case, I don't the "From" or "FromIterator" traits, nor the "Vector" type.
-	// But I wrap Vec<RQScheduledTask> in a Newtype, and I can do whatever I want with it.
-
-
 	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledTask {
 		/*
 			Call RQ and request the list of values in "btu_scheduler:job_execution_times"
@@ -597,10 +627,17 @@ pub mod scheduler {
 		return Ok("Scheduled Task successfully removed from Redis Queue.".to_owned());
 	}
 
+	/**
+		Prints upcoming Task Schedules using the configured Time Zone.
+	*/
 	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
-		let tasks: VecRQScheduledTask = rq_get_scheduled_tasks(app_config);
+
+		let tasks: VecRQScheduledTask = rq_get_scheduled_tasks(app_config);  // fetch all the scheduled tasks.
+		let local_time_zone: chrono_tz::Tz = app_config.tz().unwrap();  // get the time zone from the Application Configuration.
+
 		for result in tasks.sort_by_id().iter() {
-			println!("{}", result);
+			let next_datetime_local = result.next_datetime_utc.with_timezone(&local_time_zone);
+			println!("{} at {}", result.task_schedule_id, next_datetime_local);
 		};
 	}
 

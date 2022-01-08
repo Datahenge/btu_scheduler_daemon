@@ -1,4 +1,5 @@
 /* ipc_stream.rs */
+
 #![forbid(unsafe_code)]
 
 // This module handles Inter-process Communication with the colocated Frappe Web Server.
@@ -69,7 +70,7 @@ pub fn handle_client_request(mut stream: UnixStream,
         Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
     };
     buffer_as_string = buffer_as_string.trim_matches(char::from(0));  // remove all the training zero's
-    println!("Buffer as string: {}", buffer_as_string);
+    // println!("Buffer as string: {}", buffer_as_string);
 
     // Part 2: Response varies with request:
     let client_message: Result<FrappeClientMessage, serde_json::Error> = serde_json::from_str(&buffer_as_string);
@@ -86,7 +87,7 @@ pub fn handle_client_request(mut stream: UnixStream,
     let client_message = client_message.unwrap();  // overshadow the original variable with the unwrapped contents.
     match client_message.request_type.as_str() {
         "ping" => {
-            println!("Client sent a 'ping' ...");
+            println!("Frappe Web Server sent a 'ping' request ...");
             let mut stream_out = stream.try_clone()?;
             stream_out.write_all("pong".as_bytes()).expect("Failed to 'write_all'");
             println!("...replied back with 'pong'");

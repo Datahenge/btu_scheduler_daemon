@@ -1,6 +1,8 @@
 /*
-	DEV NOTE: To run tests and display STDOUT, type the following in the shell:
+	NOTE: To run tests and display STDOUT, type the following in the shell:
+	
 		cargo test -- --nocapture
+
 */
 
 #[cfg(test)]
@@ -8,7 +10,7 @@ mod tests {
 	
 	use chrono::{DateTime, NaiveDateTime, Utc};
 	use crate::btu_cron::cron_str_to_cron_str7;
-	use crate::btu_cron::{local_cron_to_utc_datetimes};
+	use crate::btu_cron::{tz_cron_to_utc_datetimes};
 	use crate::scheduler::RQScheduledTask;
 
     #[test]
@@ -27,6 +29,10 @@ mod tests {
 		assert_eq!(failed_test.err().unwrap(), crate::error::CronError::WrongQtyOfElements { found: 8 });
     }
 
+
+	/**
+	 * This test is to ensure that I can convert a 5, 6, or 7 character cron string, to a 7-character cron string.
+	 */
 	#[test]
 	fn test_cron7_success() {
 		// Format for cron7:	<seconds> <minutes> <hours> <day-of-month> <month> <day-of-week> <year>
@@ -50,22 +56,33 @@ mod tests {
 			expression_seven
         );
     }
-	
+
+	/**
+	 * This test proves that a Local Cron is corrected converted to a UTC Datetime.
+	 */	
 	#[test]
 	fn test_simple_local_cron() {
+		use chrono::TimeZone;
 
-		let number_of_results: usize = 2;
 		let local_timezone = chrono_tz::America::Los_Angeles;
+		let starting_at_utc_datetime: DateTime<Utc> = Utc.ymd(2021, 12, 25).and_hms(0, 0, 1);
 
-		println!("TEST: UTC Now is {}", Utc::now());
-		println!("TEST: Trying to retrieve {} results from function.", number_of_results);
+		let number_of_results: usize = 3;  // We want the first 3 results back.
 
-		let utc_expected = chrono::Utc::now();
-		let vector_of_actual = local_cron_to_utc_datetimes("0 30 3 * * * 2021", local_timezone, number_of_results).unwrap();
-		if vector_of_actual.len() < 1 {
-			panic!("No values were returned from function 'local_cron_to_utc_datetimes'");
-		}
-		assert_eq!(utc_expected, vector_of_actual[0]);  // compare first value.
+		// Every 10 minutes starting at 1am on December 25th, 2021.
+		let vec_utc_calculated = tz_cron_to_utc_datetimes("0 */10 1 25 12 * 2021", 
+		                                                  local_timezone,
+														  Some(starting_at_utc_datetime),
+														  number_of_results).unwrap();
+
+		// There is an 8-hour difference between Los Angeles and UTC in December.
+		// Therefore, with the cron string above, the expected results begin at 9AM UTC.
+		let vec_utc_expected = vec![
+			Utc.ymd(2021, 12, 25).and_hms(9, 0, 0),		// `2021-12-25T09:00:00Z`
+			Utc.ymd(2021, 12, 25).and_hms(9, 10, 0),    // `2021-12-25T09:10:00Z`
+			Utc.ymd(2021, 12, 25).and_hms(9, 20, 0)     // `2021-12-25T09:20:00Z`
+		];
+		assert_eq!(vec_utc_expected, vec_utc_calculated);
 	}
 
 	#[test]

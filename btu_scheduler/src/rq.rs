@@ -1,5 +1,12 @@
 #![allow(dead_code)]
 
+/*
+
+This module should stay focused on Python RQ features and functionality,
+and not cross over into how the BTU works.
+
+*/
+
 use std::fmt;
 use std::collections::HashMap;
 
@@ -104,6 +111,7 @@ pub fn utc_to_rq_string(datetime_utc: DateTime<Utc>) -> String {
 	// it will -crash- the Python RQ Worker.
 	datetime_utc.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
+
 
 impl fmt::Display for RQJob {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
