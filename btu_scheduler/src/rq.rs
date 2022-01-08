@@ -1,4 +1,6 @@
-use std::{fmt};
+#![allow(dead_code)]
+
+use std::fmt;
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};

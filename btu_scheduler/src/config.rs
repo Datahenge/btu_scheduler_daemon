@@ -7,8 +7,11 @@
 
 use std::{fmt, fs};
 use std::path::{Path};
-use serde::{Deserialize, Serialize};
+
+use chrono_tz::Tz;
 use mysql::{Opts, Pool};
+use serde::{Deserialize, Serialize};
+
 use crate::config::error::ConfigError;
 
 static CONFIG_FILE_PATH: &'static str = "/etc/btu_scheduler/btu_scheduler.toml";
@@ -31,37 +34,6 @@ mod error {
 	}
 }
 
-/** 
-	A custom type 'MyTz' for implementing Serialize and Deserialize.
-
-
-pub struct MyTz ( chrono_tz::Tz );  // tuple struct: See article https://rust-unofficial.github.io/patterns/patterns/behavioural/newtype.html
-
-impl MyTz {
-	pub fn new(tz: chrono_tz::Tz) -> MyTz {
-		MyTz(tz)
-	}
-}
-
-impl Serialize for MyTz {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
-    {
-		// 3 is the number of fields in the struct.
-	 	let mut tup = serializer.serialize_tuple(1)?;
-		tup.serialize_element(&self.0.to_string())?;  // Unsure if this is reasonable, but converting the TZ to a string seems the easiest approach to Serialization.
-		tup.end()
-    }
-}
-impl<'a> Deserialize<'a> for MyTz {
-    fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'a>
-    {
-		deserializer.deserialize_string(MyTz::new(D))
-    }
-}
-
-*/
 #[derive(Deserialize, Serialize)]
 pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
@@ -144,6 +116,19 @@ impl AppConfig {
 		println!("{}", toml_string);
 		std::process::exit(1);
 	}
+
+	pub fn tz(&self) -> Result<chrono_tz::Tz, chrono_tz::ParseError> {
+
+		let _: Tz = match self.time_zone_string.parse() {
+			Ok(v) => {
+				return Ok(v);
+			}
+			Err(e) => {
+				return Err(e)
+			}
+		};
+	}
+
 }
 
 impl fmt::Display for AppConfig {
@@ -206,3 +191,36 @@ pub fn get_mysql_pool(config: &AppConfig) -> Result<mysql::Pool, mysql::error::E
 	let opts = Opts::from_url(&url)?;
 	Pool::new(opts)
 }	
+
+
+// Brian:  Would be great to accomplish this, so I could store Tz inside of other structs.
+//         However, implementing Serialize and Deserialize for Tz is beyond my capabilities at the moment.
+
+/*
+	pub struct MyTz ( chrono_tz::Tz );  // tuple struct: See article https://rust-unofficial.github.io/patterns/patterns/behavioural/newtype.html
+
+	impl MyTz {
+		pub fn new(tz: chrono_tz::Tz) -> MyTz {
+			MyTz(tz)
+		}
+	}
+
+	impl Serialize for MyTz {
+		fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+			where S: Serializer
+		{
+			// 3 is the number of fields in the struct.
+			let mut tup = serializer.serialize_tuple(1)?;
+			tup.serialize_element(&self.0.to_string())?;  // Unsure if this is reasonable, but converting the TZ to a string seems the easiest approach to Serialization.
+			tup.end()
+		}
+	}
+	impl<'a> Deserialize<'a> for MyTz {
+		fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
+			where D: Deserializer<'a>
+		{
+			deserializer.deserialize_string(MyTz::new(D))
+		}
+	}
+
+*/

@@ -6,13 +6,12 @@ use clap::{App, AppSettings, Arg, SubCommand};  //, ArgMatches, AppSettings;
 use serde_json::Value   as SerdeJsonValue;
 use ureq::Request;
 
-use btu_scheduler::config::AppConfig;
-use btu_scheduler::task;
-use btu_scheduler::task::BtuTask;
-
-use btu_scheduler::task_scheduler;
-use btu_scheduler::rq;
-use btu_scheduler::rq::{RQJob};
+use btu_scheduler::{
+    config::AppConfig,
+    rq,
+    scheduler,
+    task::{BtuTask, print_enabled_tasks},
+};
 
 fn main() {
 
@@ -201,22 +200,11 @@ fn cli_list_jobs(app_config: &AppConfig) {
 }
 
 
+/**
+  Prints to console the ID and Description of all enabled BTU Tasks in the MariaDB database.
+*/ 
 fn cli_list_tasks(app_config: &AppConfig) {
-    // Prints all BTU Tasks from the MariaDB database.
-    match task::query_task_summary(app_config) {
-        Some(tasks) => {
-            if tasks.len() == 0 {
-                println!("No BTU Tasks are defined in the MariaDB database.");
-                return;
-            }
-            for task in tasks {
-                println!("Task {} : {}", task.0, task.1);
-            }
-        },
-        None => {
-            println!("No BTU Tasks are defined in the MariaDB database.");
-        }
-    }
+    print_enabled_tasks(app_config);
 }
 
 
@@ -279,13 +267,13 @@ fn cli_queue_task_immediately(app_config: &AppConfig, btu_task_id: &str) -> () {
     println!("------\n{}\n------", task);
 
     // 2. Create an RQ Job from that Task.
-    let rq_job: RQJob = task.to_rq_job(app_config);
+    let rq_job: rq::RQJob = task.to_rq_job(app_config);
     println!("{}\n------", rq_job);
 
     // 3. Save the new Job into Redis.
     rq_job.save_to_redis(app_config);
 
-    // 4. Enqueue that job for immiedate execution.
+    // 4. Enqueue that job for immediate execution.
     match rq::enqueue_job_immediate(&app_config, &rq_job.job_key_short) {
         Ok(ok_message) => {
             println!("Successfully enqueued: {}", ok_message);
@@ -313,5 +301,5 @@ fn cli_show_job_details(app_config: &AppConfig, job_id: &str) -> () {
 
 
 fn cli_show_scheduled_jobs(app_config: &AppConfig) {
-	task_scheduler::rq_print_scheduled_tasks(app_config);
+	scheduler::rq_print_scheduled_tasks(app_config);
 }

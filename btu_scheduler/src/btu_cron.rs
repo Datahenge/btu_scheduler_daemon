@@ -61,7 +61,7 @@ pub fn local_cron_to_utc_datetimes(cron_expression_string: &str,
 	/* 	The initial results below will be UTC datetimes.  Because that is what Schedule outputs.
 		Workaround:
 		1. Strip the time zone component, so the UTC DateTime becomes a Naive Datetime.
-		2. Change to Local Times by applying the function argument `cron_timezone`.
+		2. Change to Local Times by applying the function argument `cron_timezone`
 		   At this point, it's as-if Schedule created Local times in the first place.
 		3. Finally, shift the DateTime to UTC, in preparation for integration with RQ.
 

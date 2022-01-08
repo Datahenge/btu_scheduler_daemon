@@ -6,10 +6,10 @@
 #[cfg(test)]
 mod tests {
 	
-	use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+	use chrono::{DateTime, NaiveDateTime, Utc};
 	use crate::btu_cron::cron_str_to_cron_str7;
 	use crate::btu_cron::{local_cron_to_utc_datetimes};
-	use crate::task_scheduler::RQScheduledJob;
+	use crate::scheduler::RQScheduledTask;
 
     #[test]
     fn test_cron7_fail() {
@@ -69,28 +69,25 @@ mod tests {
 	}
 
 	#[test]
-	fn test_rqscheduledjob_from_strings() {
+	fn test_rqscheduledtask_from_strings() {
 		
 		let job_id = "Job12345".to_string();
 		let unix_timestamp: i64 = 1638424800;
-		// let Eastern = chrono_tz::US::Eastern;
 
 		let datetime_naive = NaiveDateTime::from_timestamp(unix_timestamp, 0);
 		let datetime_utc: DateTime<Utc> = DateTime::from_utc(datetime_naive, Utc);
 
-		// Create manually.
-		let expected = RQScheduledJob {
-			job_id: job_id.clone(),
+		// Create a new struct: RQScheduledTask
+		let expected = RQScheduledTask {
+			task_schedule_id: job_id.clone(),
 			next_datetime_unix: unix_timestamp,
 			next_datetime_utc: datetime_utc,
-			// next_datetime_local: Eastern.from_utc_datetime(&datetime_utc.naive_utc())
 		};
 
 		// Create from a Tuple of 2 Strings:
-		let actual = RQScheduledJob::from(
-			(job_id, unix_timestamp.to_string(), "US/Eastern".to_string())
+		let actual = RQScheduledTask::from(
+			(job_id, unix_timestamp.to_string())
 		);
-
 		assert_eq!(expected, actual);
 	}
 

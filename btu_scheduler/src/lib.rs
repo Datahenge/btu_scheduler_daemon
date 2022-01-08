@@ -14,12 +14,50 @@ pub fn get_package_version() -> &'static str {
     VERSION
 }
 
+pub mod error {
+	use toml::de::Error		as TomlError;
+	use thiserror::Error	as ThisError;
+
+	#[derive(ThisError, Debug)]
+	pub enum ConfigError {
+		#[error("Could not deserialize TOML into a Rust object.\n    {source:?}")]
+		ConfigLoad {
+			#[from] 
+			source: TomlError,
+		},
+		#[error("Cannot find the TOML configuration file on disk.")]
+		MissingConfigFile,
+	}
+	
+	#[derive(ThisError, Debug, PartialEq)]
+	pub enum CronError {
+		#[error("Cron expression has the wrong number of elements (should be one of 5, 6, or 7).")]
+		WrongQtyOfElements {
+			found: usize
+		},
+	}
+
+	#[derive(ThisError, Debug, PartialEq)]
+	pub enum StringError {
+		#[error("Element cannot be split using delimiter.")]
+		MissingDelimiter,
+	}
+
+	#[derive(ThisError, Debug, PartialEq)]
+	pub enum RQError {
+		#[error("No idea what happened here.")]
+		Unknown {
+			#[from]
+			source: redis::RedisError,
+		}
+	}
+}  // end of error module.
+
 pub mod task {
 	
 	use std::fmt;
 	use mysql::prelude::Queryable;
 	use mysql::PooledConn;
-	use std::io::Read;  // mandatory for 'resp.into_reader()' call in get_pickled_function_from_web
 	use crate::config;
 	use crate::config::AppConfig;
 	use crate::rq::RQJob;
@@ -60,30 +98,17 @@ pub mod task {
 				return Err(format!("Error in response: {:?}", wrapped_response.err()));
 			}
 
-			let web_server_resp = wrapped_response.unwrap();
-			
+			let web_server_resp = wrapped_response.unwrap()
+			;
 			assert!(web_server_resp.has("Content-Length"));
-			let len = web_server_resp.header("Content-Length")
+			let _response_length = web_server_resp.header("Content-Length")
 				.and_then(|s| s.parse::<usize>().ok()).unwrap();
-		
-			// Option #1 : Try reading as an ERPNext message.
+
+			// Store the response in a FrappeApiMessage struct.
 			let response_json: FrappeApiMessage = web_server_resp.into_json().unwrap();
 			// println!("Reponse as JSON: {:?}", response_json.message);
 			let bytes: Vec<u8> = response_json.message;
 			return Ok(bytes);
-
-			let mut bytes: Vec<u8> = Vec::with_capacity(len);
-			// Read the bytes, up to a maximum:
-			web_server_resp.into_reader()
-				.take(10_000_000)
-				.read_to_end(&mut bytes).unwrap();
-		
-			if bytes.len() != len {
-				return Err(format!("Expected {} bytes, but only {} bytes were retrieved.", len, bytes.len()))
-			}
-			println!("HTTP Response from 'get_pickled_task': {} total bytes.", bytes.len());
-			println!("Bytes as JSON: ");
-			Ok(bytes)
 		}
 
 		pub fn new_from_mysql(task_key: &str, app_config: &AppConfig) -> Self {
@@ -167,7 +192,7 @@ pub mod task {
 		}
 	}
 
-	pub fn query_task_summary(app_config: &AppConfig) -> Option<Vec<(String, String)>> {
+	pub fn print_enabled_tasks(app_config: &AppConfig) -> () {
 
 		let mut sql_conn: PooledConn;
 		match config::get_mysql_conn(app_config) {
@@ -176,106 +201,56 @@ pub mod task {
 			},
 			Err(err) => {
 				println!("Error while attempting to get connection in 'query_task_summary' : {}", err);
-				return None
+				return ()
 			}
 		}
-		
-		let query_syntax = "SELECT name, desc_short	FROM `tabBTU Task` WHERE docstatus = 1";
 
+		let query_syntax = "SELECT name, desc_short	FROM `tabBTU Task` WHERE docstatus = 1";
 		let task_vector: Vec<(String,String)> = sql_conn.query_map(query_syntax, |row: mysql::Row| {
 			(row.get(0).unwrap(), row.get(1).unwrap())
 		}).unwrap();
 
 		if task_vector.len() > 0 {
-			return Some(task_vector)
+			for task in task_vector {
+				println!("Task {} : {}", task.0, task.1);
+			}
 		}
-		return None
+		else {
+			println!("No BTU Tasks are defined in the MariaDB database.");
+		}
 	}
 }  // end of task module.
 
-pub mod error {
-	use toml::de::Error		as TomlError;
-	use thiserror::Error	as ThisError;
-
-	#[derive(ThisError, Debug)]
-	pub enum ConfigError {
-		#[error("Could not deserialize TOML into a Rust object.\n    {source:?}")]
-		ConfigLoad {
-			#[from] 
-			source: TomlError,
-		},
-		#[error("Cannot find the TOML configuration file on disk.")]
-		MissingConfigFile,
-	}
+pub mod task_schedule {
 	
-	#[derive(ThisError, Debug, PartialEq)]
-	pub enum CronError {
-		#[error("Cron expression has the wrong number of elements (should be one of 5, 6, or 7).")]
-		WrongQtyOfElements {
-			found: usize
-		},
-	}
-
-	#[derive(ThisError, Debug, PartialEq)]
-	pub enum StringError {
-		#[error("Element cannot be split using delimiter.")]
-		MissingDelimiter,
-	}
-
-	#[derive(ThisError, Debug, PartialEq)]
-	pub enum RQError {
-		#[error("No idea what happened here.")]
-		Unknown {
-			#[from]
-			source: redis::RedisError,
-		}
-	}
-}
-
-pub mod task_scheduler {
-
-	use chrono::{DateTime, Local, TimeZone, Utc}; // See also: DateTime, Local, TimeZone
-	use chrono::NaiveDateTime;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
-	use redis::{self};
-	use redis::{Commands, RedisError};
-
-	use crate::btu_cron;
 	use crate::config;
-	use crate::rq;
-	
-	static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
-	static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
-    static RQ_KEY_SCHEDULER_LOCK: &'static str = "rq:scheduler_lock";
-    static RQ_KEY_SCHEDULED_JOBS: &'static str = "btu_scheduler:job_execution_times";
 
-	// Deliberately excluding SQL column that don't matter for this program.
+	// Deliberately excluding SQL columns that don't matter for this program.
 	#[derive(Debug, Clone)]
 	pub struct BtuTaskSchedule {
-		id: String,
+		pub id: String,
 		task: String,
 		task_description: String,
-		enabled: String,
+		enabled: u8,
 		queue_name: String,
 		redis_job_id: String,
 		argument_overrides: Option<String>,  // MUST use Option here, if the result is at all Nullable.
 		schedule_description: String,
-		cron_string: String,
-		cron_timezone: chrono_tz::Tz
+		pub cron_string: String,
+		pub cron_timezone: chrono_tz::Tz
 	}
 
+	/** Given a Task Schedule identifier (string), connect to MySQL, query the table,
+	    and return a new instance of struct 'BtuTaskSchedule'.
+	*/
 	pub fn read_btu_task_schedule(app_config: &config::AppConfig, task_schedule_id: &str) -> Option<BtuTaskSchedule> {
-		/* Purpose: Given a Task Schedule identifier (string), connect to MySQL, query the table,
-		            and return a new instance of struct 'BtuTaskSchedule' to the caller.
-		*/
 
-		// 1. Get a SQL connection.
-		let mut sql_conn: PooledConn = config::get_mysql_conn(&app_config).unwrap();
+		let mut sql_conn: PooledConn = config::get_mysql_conn(&app_config).unwrap();  // create a connection to the MariaDB database.
 
 		// 2. Run query, and map result into a new Result<Option<BtuTaskSchedule>>
-
-		// TODO: Need to resolve SQL injection possibility.  Probably means crabbing some more Crates.
+		//    TODO: Investigate resolving SQL injection.  Probably means finding a helpful 3rd party crate.
 		let query_syntax = format!("SELECT name, task, task_description, enabled, queue_name,
 		redis_job_id, argument_overrides, schedule_description, cron_string
 		FROM `tabBTU Task Schedule` WHERE name = '{}'", task_schedule_id);
@@ -284,10 +259,6 @@ pub mod task_scheduler {
 			thread '<unnamed>' panicked at 'Could not retrieve alloc::string::String from Value', 
 			/home/sysop/.cargo/registry/src/github.com-1ecc6299db9ec823/mysql_common-0.27.5/src/value/convert/mod.rs:175:23
 		*/
-
-		// TODO: Stop hardcoding this, and fetch from SQL Table `tabBTU Task Schedule`
-		let eastern_timezone = chrono_tz::America::New_York;
-
 		let task_schedules: Vec<BtuTaskSchedule> = sql_conn
 			.query_map(query_syntax, |row: mysql::Row| {
 				BtuTaskSchedule {
@@ -300,7 +271,7 @@ pub mod task_scheduler {
 					argument_overrides: row.get(6).unwrap(),
 					schedule_description:row.get(7).unwrap(),
 					cron_string:  row.get(8).unwrap(),
-					cron_timezone: eastern_timezone
+					cron_timezone: app_config.tz().unwrap()
 				}
 			}).unwrap();
 	
@@ -313,123 +284,47 @@ pub mod task_scheduler {
 		}       
 	}
 
-	// Entry point for building new Redis Queue Jobs.
-	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
-		/*
-			Summary: Main entry point for scheduling new Redis Queue Jobs.
+}
 
-			In the Python 'rq_scheduler' library, the public entrypoint (from the website) was named a function 'cron()'.
-			That function does a few things, which we'll need to replicate here:
-  
- 			1. Get the next scheduled execution time, in UTC.
-			2. Create an RQ 'job' Object
-			3. Adds a Z key to Redis where the "Score" is the Next UTC Runtime, expressed as a Unix Time.
-				self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
-		*/
+pub mod scheduler {
 
-		println!("Scheduling BTU Task Schedule: '{}'", task_schedule.id);
-		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::local_cron_to_utc_datetimes(&task_schedule.cron_string, task_schedule.cron_timezone, 10).unwrap();
-		if next_runtimes.len() == 0 {
-			println!("ERROR: Cannot calculate the next Next Runtime for Task {}", &task_schedule.id);
-			()
-		}
-		println!("  * Next execution time for this Task is {}", next_runtimes[0]);
+	use std::fmt;
 
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
+	use chrono::NaiveDateTime;
 
-		/* Variables needed:
-		cron_string, func, args=None, kwargs=None, repeat=None,
-		queue_name=None, id=None, timeout=None, description=None, meta=None, use_local_timezone=False,
-		depends_on=None, on_success=None, on_failure=None):
-		*/
+	use redis::{self};
+	use redis::{Commands, RedisError};
 
-		/*
-		// Set result_ttl to -1, as jobs scheduled via cron are periodic ones.
-   		// Otherwise the job would expire after 500 sec.
+	use crate::btu_cron;
+	use crate::config;
+	use crate::rq;
+	use crate::task_schedule::BtuTaskSchedule;
 
-   		job = self._create_job(func, args=args, kwargs=kwargs, commit=False,
-						  result_ttl=-1, id=id, queue_name=queue_name,
-						  description=description, timeout=timeout, meta=meta, depends_on=depends_on,
-						  on_success=on_success, on_failure=on_failure)
-
-   		job.meta['cron_string'] = cron_string
-   		job.meta['use_local_timezone'] = use_local_timezone
-	   	if repeat is not None:
-			job.meta['repeat'] = int(repeat)
-	   	job.save()
-
-		*/
-
-		// The Redis 'zadd()' operation returns an integer.
-		let some_result: Result<std::primitive::u32, RedisError>;
-		some_result = redis_conn.zadd(RQ_KEY_SCHEDULED_JOBS, &task_schedule.redis_job_id, next_runtimes[0].timestamp());
-
-		match some_result {
-			Ok(result) => {
-				println!("Result from 'zadd' is Ok, with the following payload: {}", result);
-			},
-			Err(error) => {
-				println!("Result from 'zadd' is Err, with the following payload: {}", error);
-			}
-		}
-   		()
-	}
-
-	fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
-		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
-
-		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
-		// the Z-score represents the Unix Timestamp the Job is supposed to execute on.
-		// By fetching ALL the values below a certain threshhold (Timestamp), the program knows precisely which Jobs
-		// to enqueue...
-		
-		println!("Searching Redis for Jobs that can be immediately enqueued in RQ ...");
-		println!("FYI, here are all the tasks:");
-		rq_print_scheduled_tasks(&app_config);
-
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
-		
-		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
-		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
-		let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore("rq:scheduler:scheduled_jobs", 0, sched_before_unix_time);
-		if redis_result.is_ok() {
-			let jobs_to_enqueue = redis_result.unwrap();
-			if jobs_to_enqueue.len() > 0 {
-				println!("Found {:?} jobs that qualify for immediate execution.", jobs_to_enqueue);
-			}
-			jobs_to_enqueue  // return a Vector of Job identifiers
-		}
-		else {
-			Vec::new()
-		}
-	}
-
-	pub fn promote_jobs_to_rq_if_ready(app_config: &config::AppConfig) {
-		// This function is analgous to the 'rq-scheduler' Python function: 'Scheduler.enqueue_jobs()'
-
-		let unix_timestamp_now = Utc::now().timestamp();
-		// println!("Current Unix Timestamp is '{}'", unix_timestamp_now);
-
-        let jobs_to_enqueue = fetch_jobs_ready_for_rq(app_config, unix_timestamp_now);
-		for job in jobs_to_enqueue.iter() {
-			println!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", job);
-			// self.enqueue_job(job)
-		}
-	}
-
+	// static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
+	// static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
+    // static RQ_KEY_SCHEDULER_LOCK: &'static str = "rq:scheduler_lock";
+    static RQ_KEY_SCHEDULED_TASKS: &'static str = "btu_scheduler:task_execution_times";
 
 	#[derive(Debug, PartialEq, Clone)]
-	pub struct RQScheduledJob {
-		pub job_id: String,
+	pub struct RQScheduledTask {
+		pub task_schedule_id: String,
 		pub next_datetime_unix: i64,
 		pub next_datetime_utc: DateTime<Utc>,
-		// pub next_datetime_local: DateTime<chrono_tz::Tz>
 	}
 
-	fn _from_tuple_to_rqscheduledjob(tuple: &(String, String)) -> Result<RQScheduledJob, std::io::Error> {
+	impl std::fmt::Display for RQScheduledTask {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		  write!(f, "{} at {}",
+		      self.task_schedule_id,
+			  self.next_datetime_utc)
+		}
+	}
+
+	fn _from_tuple_to_rqscheduledtask(tuple: &(String, String)) -> Result<RQScheduledTask, std::io::Error> {
 		/* 
 			The tuple argument consists of 2 Strings: JobId and Unix Timestamp.
-			Using this information, we can build an RQScheduledJob struct.
+			Using this information, we can build an RQScheduledTask struct.
 			There is no reason to consume the tuple; so accepting it as a reference.
 		*/
 		let timestamp: i64 = tuple.1.parse::<i64>().unwrap();  // coerce the second String into an i64, using "turbofish" syntax
@@ -443,63 +338,50 @@ pub mod task_scheduler {
 			}
 		};
 		 */
-		Ok(RQScheduledJob {
-			job_id: tuple.0.clone(),
+		Ok(RQScheduledTask {
+			task_schedule_id: tuple.0.clone(),
 			next_datetime_unix: timestamp,
 			next_datetime_utc: utc_datetime
 			// next_datetime_local: local_time_zone.from_utc_datetime(&utc_datetime.naive_utc())
 		})
 	}
 
-	impl From<(String,String)> for RQScheduledJob {
+	pub struct VecRQScheduledTask ( Vec<RQScheduledTask> );
 
-		// TODO: Change to a Result with some kind of Error
-		fn from(tuple: (String, String)) -> RQScheduledJob {
-			_from_tuple_to_rqscheduledjob(&tuple).unwrap()
-		}
-	}
-
-	// NOTE:  Below is the 'Newtype Pattern'.
-	// It's useful when you need implement Traits you aren't normally allowed to: because you don't own either
-	// the Trait or Type.  In this case, I don't the "From" or "FromIterator" traits, nor the "Vector" type.
-	// But I wrap Vec<RQScheduledJob> in a Newtype, and I can do whatever I want with it.
-
-	pub struct VecRQScheduledJob ( Vec<RQScheduledJob> );
-	impl VecRQScheduledJob {
+	impl VecRQScheduledTask {
 
 		fn new() -> Self {
-			let empty_vector: Vec<RQScheduledJob> = Vec::new();
-			VecRQScheduledJob(empty_vector)
+			let empty_vector: Vec<RQScheduledTask> = Vec::new();
+			VecRQScheduledTask(empty_vector)
 		}
 
 		fn len(&self) -> usize {
 			// Because this is just a 1-element tuple, "self.0" gets the inner Vector!
 			self.0.len()
 		}
-	}
 
-	/* OLD IMPLEMENTATION, before I returned a Result.
-
-	impl std::iter::FromIterator<RQScheduledJob> for VecRQScheduledJob {
-
-		fn from_iter<T>(iter: T) -> VecRQScheduledJob
-		where T: IntoIterator<Item=RQScheduledJob> {
-			
-			let mut result: VecRQScheduledJob = VecRQScheduledJob::new();
-			for inner in iter { 
-				result.0.push(inner); 
-			}
-			result
+		fn sort_by_id(self) -> VecRQScheduledTask {
+			// Consumes the current VecRQScheduledTask, and returns another that is sorted by Task Schedule ID.
+			let mut result = self.0;
+			result.sort_by(|a, b| a.task_schedule_id.partial_cmp(&b.task_schedule_id).unwrap());
+			VecRQScheduledTask(result)
 		}
+		
+		fn sort_by_next_datetime(self) -> VecRQScheduledTask {
+			// Consumes the current VecRQScheduledTask, and returns another that is sorted by Task Schedule ID.
+			let mut result = self.0;
+			result.sort_by(|a, b| a.next_datetime_unix.partial_cmp(&b.next_datetime_unix).unwrap());
+			VecRQScheduledTask(result)
+		}
+
 	}
-	*/
 
-	impl std::iter::FromIterator<Result<RQScheduledJob, std::io::Error>> for VecRQScheduledJob {
+	impl std::iter::FromIterator<Result<RQScheduledTask, std::io::Error>> for VecRQScheduledTask {
 
-		fn from_iter<T>(iter: T) -> VecRQScheduledJob
-		where T: IntoIterator<Item=Result<RQScheduledJob, std::io::Error>> {
+		fn from_iter<T>(iter: T) -> VecRQScheduledTask
+		where T: IntoIterator<Item=Result<RQScheduledTask, std::io::Error>> {
 			
-			let mut result: VecRQScheduledJob = VecRQScheduledJob::new();
+			let mut result: VecRQScheduledTask = VecRQScheduledTask::new();
 			for inner in iter {
 				result.0.push(inner.unwrap()); 
 			}
@@ -509,7 +391,7 @@ pub mod task_scheduler {
 
 	// Create a 3rd struct which will contain a reference to your set of data.
 	struct IterNewType<'a> {
-		inner: &'a VecRQScheduledJob,
+		inner: &'a VecRQScheduledTask,
 		// position used to know where you are in your iteration.
 		pos: usize,
 	}
@@ -517,7 +399,7 @@ pub mod task_scheduler {
 	// Now you can just implement the `Iterator` trait on your `IterNewType` struct.
 	impl<'a> Iterator for IterNewType<'a> {
 
-		type Item = &'a RQScheduledJob;
+		type Item = &'a RQScheduledTask;
 
 		fn next(&mut self) -> Option<Self::Item> {
 			if self.pos >= self.inner.len() {
@@ -532,7 +414,7 @@ pub mod task_scheduler {
 		}
 	}
 	
-	impl VecRQScheduledJob {
+	impl VecRQScheduledTask {
 		fn iter<'a>(&'a self) -> IterNewType<'a> {
 			IterNewType {
 				inner: self,
@@ -541,59 +423,197 @@ pub mod task_scheduler {
 		}
 	}
 
-	impl From<Vec<(String,String)>> for VecRQScheduledJob {
+	impl From<Vec<(String,String)>> for VecRQScheduledTask {
 
 		fn from(vec_of_tuple: Vec<(String,String)>) -> Self {
 
 			if vec_of_tuple.len() == 0 {
-				// If passed an empty tuple, return an empty Vector of RQScheduledJob.
-				return VecRQScheduledJob::new();
+				// If passed an empty tuple, return an empty Vector of RQScheduledTask.
+				return VecRQScheduledTask::new();
 			}
-			let result = vec_of_tuple.iter().map(_from_tuple_to_rqscheduledjob).collect();
+			let result = vec_of_tuple.iter().map(_from_tuple_to_rqscheduledtask).collect();
 			result
 		}
 	}
 
-	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledJob {
+	/**
+	 	This function writes a Task Schedules "Next Execution Time(s)" to the Redis Queue database.
+	*/ 
+	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
+		/*
+			Developer Notes:
+			
+			1. The only caller for this function is Thread #1.
+
+			2. This function's concept was derived from the Python 'rq_scheduler' library.  In that library, the public
+			   entrypoint (from the website) was named a function 'cron()'.  That function did a few things:
+
+			   * Created an RQ Job object in the Redis datbase.
+			   * Calculated that Job's next execution time, in UTC.
+  			   * Added a Z key to Redis where the "Score" is the Next UTC Runtime, expressed as a Unix Time.
+				 self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
+
+			3. I am making a deliberate decision to -not- create an RQ Job at this time.  But instead, to create the RQ
+			   Job later, when it's time to actually run it.
+			   
+			   My reasoning is this: a Frappe web user might edit the definition of a Task between the time it was scheduled
+			   in RQ, and the time it actually executes.  This would make the RQ Job stale and invalid.  So anytime someone edits
+			   a BTU Task, I would have to rebuild all related Task Schedules.  Instead, by waiting until execution time, I only have
+			   to react to Schedule modfications in the Frappe web app; not Task modifications.
+
+			   The disadvantage is that if the Frappe Web Server is not online and accepting REST API requests, when it's
+			   time to run a Task Schedule?  Then BTU Scheduler will fail.  Because it needs Frappe alive to construct a pickled
+			   RQ Job.
+
+			   Of course, if the Frappe web server is offline, there's a good chance the BTU Task Schedule might fail anyway.
+			   So I think the benefits of waiting to create RQ Jobs outweights the drawbacks.
+		*/
+		print!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
+		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::local_cron_to_utc_datetimes(&task_schedule.cron_string,
+			                                                                          task_schedule.cron_timezone, 10).unwrap();
+		if next_runtimes.len() == 0 {
+			println!("ERROR: Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
+			return ()
+		}
+
+		/*
+		  Developer Note:  I'm just using the first value in the vector.
+		                  Later, it might be helpful to multiple Next Execution Times?  Maybe because of time zone shifts?
+		*/
+
+
+		// If application configuration has a good Time Zone string, print Next Execution Time in local time...
+		if let Ok(timezone) = app_config.tz() {
+			println!("{}", next_runtimes[0].with_timezone(&timezone).to_rfc2822());	
+		}
+		// ...otherwise, print in UTC.
+		else {
+			println!("{} UTC", next_runtimes[0].to_rfc3339());
+		}
+
+		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+
+		// The Redis 'zadd()' operation returns an integer.
+		let some_result: Result<std::primitive::u32, RedisError>;
+		some_result = redis_conn.zadd(RQ_KEY_SCHEDULED_TASKS, &task_schedule.id, next_runtimes[0].timestamp());
+
+		match some_result {
+			Ok(_result) => {
+				// Developer Note: I believe a result of 1 means Redis wrote a new record.
+				//                 A result of 0 means the record already existed, and no write was necessary.
+				// println!("Result from 'zadd' is Ok, with the following payload: {}", result);
+			},
+			Err(error) => {
+				println!("Result from 'zadd' is Err, with the following payload: {}", error);
+			}
+		}
+		/*
+			Developer Notes:
+			* If you were to examine Redis at this time, the "Score" is the Next Execution Time (as a Unix timestamp),
+			and the "Member" is the BTU Task Schedule identifier.
+			* We haven't created an RQ Jobs for this Task Schedule yet.
+		*/
+   		()
+	}
+
+	fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
+		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
+
+		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
+		// the Z-score represents the Unix Timestamp the Job is supposed to execute on.
+		// By fetching ALL the values below a certain threshhold (Timestamp), the program knows precisely which Jobs
+		// to enqueue...
+
+		println!("Upcoming Task Schedules:");
+		rq_print_scheduled_tasks(&app_config);
+
+		println!("Now searching Redis for Task Schedules ready for immediate execution via RQ Workers ...");
+		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
+		
+		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
+		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
+		let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore(RQ_KEY_SCHEDULED_TASKS, 0, sched_before_unix_time);
+		if redis_result.is_ok() {
+			let jobs_to_enqueue = redis_result.unwrap();
+			if jobs_to_enqueue.len() > 0 {
+				println!("Found {:?} Task Schedules that qualify for immediate execution.", jobs_to_enqueue);
+			}
+			jobs_to_enqueue  // return a Vector of Task Schedule identifiers
+		}
+		else {
+			Vec::new()
+		}
+	}
+
+	/**
+	   Examine the Next Execution Time for all scheduled RQ Jobs (this information is stored in RQ as a Unix timestamps)
+       If the Next Execution Time is in the past?  Then place the RQ Job into the appropriate queue.  RQ and Workers take over from there.
+	*/
+	pub fn promote_jobs_to_rq_if_ready(app_config: &config::AppConfig) {
+		// Developer Note: This function is analgous to the 'rq-scheduler' Python function: 'Scheduler.enqueue_jobs()'
+		let unix_timestamp_now = Utc::now().timestamp();
+        let jobs_to_enqueue = fetch_jobs_ready_for_rq(app_config, unix_timestamp_now);
+		for job in jobs_to_enqueue.iter() {
+			println!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", job);
+			// self.enqueue_job(job)
+		}
+	}
+
+
+
+	impl From<(String,String)> for RQScheduledTask {
+
+		// TODO: Change to a Result with some kind of Error
+		fn from(tuple: (String, String)) -> RQScheduledTask {
+			_from_tuple_to_rqscheduledtask(&tuple).unwrap()
+		}
+	}
+
+	// NOTE:  Below is the 'Newtype Pattern'.
+	// It's useful when you need implement Traits you aren't normally allowed to: because you don't own either
+	// the Trait or Type.  In this case, I don't the "From" or "FromIterator" traits, nor the "Vector" type.
+	// But I wrap Vec<RQScheduledTask> in a Newtype, and I can do whatever I want with it.
+
+
+	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledTask {
 		/*
 			Call RQ and request the list of values in "btu_scheduler:job_execution_times"
 		*/
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_JOBS).unwrap().collect();
-		let wrapped_result: VecRQScheduledJob = redis_result.into();
+		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_TASKS).unwrap().collect();
+		let wrapped_result: VecRQScheduledTask = redis_result.into();
 		wrapped_result		
 	}
 	
+	/**
+		Remove a Task Schedule from the Redis database, to prevent it from executing in the future.
+	*/	
+	pub fn rq_cancel_scheduled_task(app_config: &config::AppConfig, task_schedule_id: &str) -> Result<String,String> {
+		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let redis_result: redis::RedisResult<u64> = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id);
+		if redis_result.is_err() {
+			return Err(redis_result.err().unwrap().to_string());
+		}
+		return Ok("Scheduled Task successfully removed from Redis Queue.".to_owned());
+	}
+
 	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
-		let tasks: VecRQScheduledJob = rq_get_scheduled_tasks(app_config);
-		for result in tasks.iter() {
-			println!("{:#?}", result);
+		let tasks: VecRQScheduledTask = rq_get_scheduled_tasks(app_config);
+		for result in tasks.sort_by_id().iter() {
+			println!("{}", result);
 		};
 	}
 
 	/*
-	
-	add_task_to_rq(
-		cron_string,                # A cron string (e.g. "0 0 * * 0")
-		func=func,                  # Python function to be queued
-		args=[arg1, arg2],          # Arguments passed into function when executed
-		kwargs={'foo': 'bar'},      # Keyword arguments passed into function when executed
-		repeat=10,                  # Repeat this number of times (None means repeat forever)
-		queue_name=queue_name,      # In which queue the job should be put in
-		meta={'foo': 'bar'},        # Arbitrary pickleable data on the job itself
-		use_local_timezone=False    # Interpret hours in the local timezone
-	)
-
-	local_cron_to_utc_cron() {
-
-	}
-
-	rq_print_scheduled_tasks() {
-
-	}
-
-	cancel_scheduled_task(task_schedule_identifier) {
-
-	}
+		add_task_to_rq(
+			cron_string,                # A cron string (e.g. "0 0 * * 0")
+			func=func,                  # Python function to be queued
+			args=[arg1, arg2],          # Arguments passed into function when executed
+			kwargs={'foo': 'bar'},      # Keyword arguments passed into function when executed
+			repeat=10,                  # Repeat this number of times (None means repeat forever)
+			queue_name=queue_name,      # In which queue the job should be put in
+			meta={'foo': 'bar'},        # Arbitrary pickleable data on the job itself
+			use_local_timezone=False    # Interpret hours in the local timezone
+		)
 	*/
 }
