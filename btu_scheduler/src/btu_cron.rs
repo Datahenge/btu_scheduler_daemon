@@ -6,14 +6,72 @@ use std::str::FromStr;
 
 use crate::error::CronError;
 
+#[derive(Debug)]
+struct CronStruct {
+	second: Option<String>,
+	minute: Option<String>,
+	hour: Option<String>,
+	day_of_month: Option<String>,
+	month: Option<String>,
+	day_of_week: Option<String>,
+	year: Option<String>
+}
+
+impl CronStruct {
+
+	fn to_string(&self) -> String {
+
+		let wildcard_string: String = "*".to_owned();
+		format!("{} {} {} {} {} {} {}",
+			self.second.as_ref().unwrap_or(&wildcard_string),
+			self.minute.as_ref().unwrap_or(&wildcard_string),
+			self.hour.as_ref().unwrap_or(&wildcard_string),
+			self.day_of_month.as_ref().unwrap_or(&wildcard_string),
+			self.month.as_ref().unwrap_or(&wildcard_string),
+			self.day_of_week.as_ref().unwrap_or(&wildcard_string),
+			self.year.as_ref().unwrap_or(&wildcard_string)
+		)
+	}
+}
+
+impl FromStr for CronStruct {
+	type Err = CronError;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+
+		fn nonwildcard_or_none(element: &str) -> Option<String> {
+			if element == "*" {
+				return None
+			}
+			else {
+				return Some(element.to_owned())
+			}
+		}
+
+		let cron7_expression: String = cron_str_to_cron_str7(s)?;
+		let vector_cron7: Vec<&str> = cron7_expression.split(" ").collect();
+
+		Ok(CronStruct {
+			second: nonwildcard_or_none(vector_cron7[0]),
+			minute: nonwildcard_or_none(vector_cron7[1]),
+			hour: nonwildcard_or_none(vector_cron7[2]),
+			day_of_month: nonwildcard_or_none(vector_cron7[3]),
+			month: nonwildcard_or_none(vector_cron7[4]),
+			day_of_week: nonwildcard_or_none(vector_cron7[5]),
+			year: nonwildcard_or_none(vector_cron7[6]),
+		})
+	}
+}
+
+/**
+	Given a cron string of N elements, transform into a cron string of 7 elements.
+*/
 pub fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, CronError> {
 	/*
-	Given a cron string of N elements, transform into a cron string of 7 elements.
-
-	Reasoning: There is no universal standard for cron strings.  They could contain 5-7 elements.  However
-				the 'cron' library expects 7 elements.  This function pads any missing elements.
+		Purpose:	There is no universal standard for cron strings.  They could contain 5-7 elements.
+					However, the Rust third-party 'cron' library expects exactly 7 elements.
+					This function pads any missing elements.
 	*/
-
 	let iter = cron_expression_string.trim().split_whitespace();
 	let vec: Vec<&str> = iter.collect::<Vec<&str>>();
 
@@ -53,14 +111,27 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	   NOTE 2:  Rather than returning a Vector of UTC Datetimes, it would be -better- to return an Iterator.
 				However, I don't know how to do that with Rust (yet).  One step at a time.
 	*/
-	
-	let cron7_expression = cron_str_to_cron_str7(cron_expression_string)?;
-	let schedule = Schedule::from_str(&cron7_expression).unwrap();  // Schedule requires a 7-element cron expression.
+	let this_cronstruct: CronStruct;
+	match cron_expression_string.parse() {
+		Ok(result) => {
+			this_cronstruct = result;
+		},
+		Err(_error) => {
+			return Err(CronError::InvalidExpression);
+		}
+	}
 
+	let schedule = Schedule::from_str(&this_cronstruct.to_string()).unwrap();  // Schedule requires a 7-element cron expression.
 	let mut result: Vec<DateTime<Utc>> = Vec::new();
 
 	/* 	The initial results below will be UTC datetimes.  Because that is what Schedule outputs.
-		Workaround:
+
+		Example 1:
+			* The current local time in Pacific is 09:01am (1701 UTC)
+			* Your cron schedule is simple: It has a cadence of 30 minutes, with no specific Day or Month
+			* The schedule will return a datetime value = 1730 UTC
+			* This value is correct, as-is.
+
 		1. Strip the time zone component, so the UTC DateTime becomes a Naive Datetime.
 		2. Change to Local Times by applying the function argument `cron_timezone`
 		   At this point, it's as-if Schedule created Local times in the first place.
@@ -69,14 +140,25 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 		Yes, this will completely break during Daylight Savings.  For today, it's 80/20.
 	*/
 
-	// Calculate results using argument 'from_utc_datetime', otherwise the current UTC datetime.
+	/*
+		Scenario #1: If the hour part of Cron is the entire range of hours (*), then accept the Schedule as-is.
+	                 There is no need to recalculate Date Time values.
+	*/
+	if this_cronstruct.hour.is_none() {
+		for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(number_of_results) {
+			result.push(utc_datetime);
+		}
+		return Ok(result)
+	}
+
+	// Scenario #2: If the cron requires a specific Time Of Day ---> we have to adjust for UTC.
+
+	// use argument 'from_utc_datetime', otherwise the current UTC datetime.
 	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(number_of_results) {
+		// by creating a Naive Datetime from UTC, then applying a Time Zone, we effectively 'move' between UTC and Local.
 		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(utc_datetime.timestamp(), 0);
-		// dbg!(naive_datetime);
 		let tz_aware = cron_timezone.from_local_datetime(&naive_datetime).unwrap();
-		// dbg!(tz_aware);
 		let new_utc_datetime: DateTime<Utc> = DateTime::<Utc>::from_utc(tz_aware.naive_utc(), Utc);
-		// dbg!(new_utc_datetime);
 		result.push(new_utc_datetime);
 	}
 	Ok(result)
@@ -122,65 +204,14 @@ pub fn future_foo(cron_expression_string: &str, _cron_timezone: Tz, _number_of_r
 } // end function 'future_foo'
 
 
+
+
 /*
+
+
 
 use std::{convert::TryInto};
 
-struct CronStruct {
-	second: Option<String>,
-	minute: Option<String>,
-	hour: Option<String>,
-	day_of_month: Option<String>,
-	month: Option<String>,
-	day_of_week: Option<String>,
-	year: Option<String>
-}
-
-impl CronStruct {
-
-	fn to_string(&self) -> String {
-
-		let result = format!("{} {} {} {} {} {} {}",
-			self.second.unwrap_or("*".to_owned()),
-			self.minute.unwrap_or("*".to_owned()),
-			self.hour.unwrap_or("*".to_owned()),
-			self.day_of_month.unwrap_or("*".to_owned()),
-			self.month.unwrap_or("*".to_owned()),
-			self.day_of_week.unwrap_or("*".to_owned()),
-			self.year.unwrap_or("*".to_owned())
-		);
-		result
-	}
-}
-
-impl FromStr for CronStruct {
-	type Err = CronError;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-
-		fn nonwildcard_or_none(element: &str) -> Option<String> {
-			if element == "*" {
-				return None
-			}
-			else {
-				return Some(element.to_owned())
-			}
-		}
-
-		let cron7_expression: String = cron_str_to_cron_str7(s)?;
-		let vector_cron7: Vec<&str> = cron7_expression.split(" ").collect();
-
-		Ok(CronStruct {
-			second: nonwildcard_or_none(vector_cron7[0]),
-			minute: nonwildcard_or_none(vector_cron7[1]),
-			hour: nonwildcard_or_none(vector_cron7[2]),
-			day_of_month: nonwildcard_or_none(vector_cron7[3]),
-			month: nonwildcard_or_none(vector_cron7[4]),
-			day_of_week: nonwildcard_or_none(vector_cron7[5]),
-			year: nonwildcard_or_none(vector_cron7[6]),
-		})
-	}
-}
 
 pub fn cron_tz_to_cron_utc(cron_expression: &str, timezone: Tz) -> Result<Vec<String>, CronError> {
 	/*

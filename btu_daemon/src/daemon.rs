@@ -200,12 +200,18 @@ fn main() {
        If the Next Execution Time is in the past?  Then place the RQ Job into the appropriate queue.  RQ and Workers take over from there.
       ----------------
     */
+    
+    let queue_counter_3 = Arc::clone(&internal_queue);
     let thread_handle_3 = thread::spawn(move || {  // this 'move' is required to own variable 'scheduler_polling_interval'
         thread::sleep(Duration::from_secs(10)); // One-time delay of execution: this gives the other Threads a chance to initialize.
         println!("--> Thread #3 launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
         loop {
+            // This thread requires a lock on the Internal Queue, so that after a Task runs, it can be rescheduled.
             let stopwatch: Instant = Instant::now();
-            scheduler::promote_jobs_to_rq_if_ready(&APP_CONFIG.lock().unwrap());
+            if let Ok(mut unlocked_queue) = queue_counter_3.lock() {
+                // Successfully achieved a lock...
+                scheduler::check_and_run_eligible_task_schedules(&APP_CONFIG.lock().unwrap(), &mut *unlocked_queue);
+            }
             let elapsed_seconds = stopwatch.elapsed().as_secs();  // time just spent working on RQ database.
             // I want this thread to execute at roughly the same interval.
             // Bu subtracting the Time Elapsed above, from the desired Wait Time, we know how much longer the thread should sleep.

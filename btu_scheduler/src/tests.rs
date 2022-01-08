@@ -60,7 +60,7 @@ mod tests {
 	/**
 	 * This test proves that a Local Cron is corrected converted to a UTC Datetime.
 	 */	
-	#[test]
+	// #[test]
 	fn test_simple_local_cron() {
 		use chrono::TimeZone;
 
@@ -85,12 +85,40 @@ mod tests {
 		assert_eq!(vec_utc_expected, vec_utc_calculated);
 	}
 
+
+	#[test]
+	fn test_2_simple_local_cron() {
+		use chrono::TimeZone;
+
+		let local_timezone = chrono_tz::America::Los_Angeles;
+		let starting_at_utc_datetime: DateTime<Utc> = Utc.ymd(2021, 12, 25).and_hms(0, 0, 1);
+		let number_of_results: usize = 3;  // We want the first 3 results back.
+
+		// Every 30 minutes starting at 12:00:01 am on December 25th, 2021.
+		let vec_utc_calculated = tz_cron_to_utc_datetimes("*/30 * * * *", 
+		                                                  local_timezone,
+														  Some(starting_at_utc_datetime),
+														  number_of_results).unwrap();
+
+		// There is an 8-hour difference between Los Angeles and UTC in December.
+		// Therefore, with the cron string above, the expected results begin at 9AM UTC.
+		let vec_utc_expected = vec![
+			Utc.ymd(2021, 12, 25).and_hms(0, 30, 0),  // `2021-12-25T00:30:00Z`
+			Utc.ymd(2021, 12, 25).and_hms(1, 0, 0),   // `2021-12-25T01:00:00Z`
+			Utc.ymd(2021, 12, 25).and_hms(1, 30, 0)   // `2021-12-25T01:30:00Z`
+		];
+		assert_eq!(vec_utc_expected, vec_utc_calculated);
+	}
+
+
+	/**
+	 * This test demonstrates how we can coerce a Tuple of 2 Strings into an RQ Scheduled Task.
+	 */
 	#[test]
 	fn test_rqscheduledtask_from_strings() {
 		
 		let job_id = "Job12345".to_string();
 		let unix_timestamp: i64 = 1638424800;
-
 		let datetime_naive = NaiveDateTime::from_timestamp(unix_timestamp, 0);
 		let datetime_utc: DateTime<Utc> = DateTime::from_utc(datetime_naive, Utc);
 
@@ -108,7 +136,7 @@ mod tests {
 		assert_eq!(expected, actual);
 	}
 
-	/* Function Not-Yet-Implemented
+	/* Feature below is Not-Yet-Implemented.
 
 	use crate::cron::future_foo;
 	use chrono_tz::Tz;

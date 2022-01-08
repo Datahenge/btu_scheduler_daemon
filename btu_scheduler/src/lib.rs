@@ -35,6 +35,8 @@ pub mod error {
 		WrongQtyOfElements {
 			found: usize
 		},
+		#[error("Invalid cron expression; could not transform into a CronStruct.")]
+		InvalidExpression
 	}
 
 	#[derive(ThisError, Debug, PartialEq)]
@@ -228,6 +230,7 @@ pub mod task_schedule {
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
 	use crate::config;
+	use crate::task::BtuTask;
 
 	// Newtype Pattern:
 	pub struct MyTz(Tz);
@@ -260,6 +263,16 @@ pub mod task_schedule {
 		schedule_description: String,
 		pub cron_string: String,
 		pub cron_timezone: chrono_tz::Tz
+	}
+
+	impl BtuTaskSchedule {
+		/**
+			Create a new BtuTask struct by reading from the MariaDB database.
+		*/
+		pub fn build_task_from_database(&self, app_config: &config::AppConfig) -> crate::task::BtuTask {
+			let task: BtuTask = BtuTask::new_from_mysql(&self.task, app_config);
+			task
+		}
 	}
 
 	/** Given a Task Schedule identifier (string), connect to MySQL, query the table,
@@ -315,21 +328,16 @@ pub mod task_schedule {
 	}
 }
 
-
 pub mod scheduler {
 
-	use std::fmt;
-
+	use std::collections::VecDeque;
+use std::fmt;
 	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
-
-	use redis::{self};
-	use redis::{Commands, RedisError};
-
-	use crate::btu_cron;
-	use crate::config;
-	use crate::rq;
-	use crate::task_schedule::BtuTaskSchedule;
+	use redis::{self, Commands, RedisError};
+	use crate::{btu_cron, config, rq};
+	use crate::task::BtuTask;	
+	use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
 
 	// static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
 	// static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
@@ -511,30 +519,28 @@ pub mod scheduler {
 			   Of course, if the Frappe web server is offline, there's a good chance the BTU Task Schedule might fail anyway.
 			   So I think the benefits of waiting to create RQ Jobs outweights the drawbacks.
 		*/
-		print!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
+		println!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
 		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::tz_cron_to_utc_datetimes(&task_schedule.cron_string,
 			                                                                       task_schedule.cron_timezone,
 																				   None,
-																				   10).unwrap();
+																				   1).unwrap();
 		if next_runtimes.len() == 0 {
 			println!("ERROR: Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
 			return ()
 		}
 
 		/*
-		  Developer Note:  I'm just using the first value in the vector.
-		                  Later, it might be helpful to multiple Next Execution Times?  Maybe because of time zone shifts?
+		  Developer Note: I am only retrieving the 1st value from the result vector.
+		                  Later, it might be helpful to use multiple Next Execution Times,
+						  because of time zone shifts around Daylight Savings.
 		*/
-
 
 		// If application configuration has a good Time Zone string, print Next Execution Time in local time...
 		if let Ok(timezone) = app_config.tz() {
-			println!("{}", next_runtimes[0].with_timezone(&timezone).to_rfc2822());	
+			println!("* Next Execution Time: {}", next_runtimes[0].with_timezone(&timezone).to_rfc2822());	
 		}
-		// ...otherwise, print in UTC.
-		else {
-			println!("{} UTC", next_runtimes[0].to_rfc3339());
-		}
+		// Always print in UTC.
+		println!("* Next Execution Time: {} UTC", next_runtimes[0].to_rfc3339());
 
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 
@@ -561,7 +567,7 @@ pub mod scheduler {
    		()
 	}
 
-	fn fetch_jobs_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
+	fn fetch_task_schedules_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
 		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
 
 		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
@@ -572,8 +578,8 @@ pub mod scheduler {
 		println!("Upcoming Task Schedules:");
 		rq_print_scheduled_tasks(&app_config);
 
-		println!("Now searching Redis for Task Schedules ready for immediate execution via RQ Workers ...");
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with RQ database server.");
+		println!("Reviewing the 'Next Execution Times' for each Task Schedule in Redis...");
+		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with Python RQ database server.");
 		
 		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
 		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
@@ -594,16 +600,68 @@ pub mod scheduler {
 	   Examine the Next Execution Time for all scheduled RQ Jobs (this information is stored in RQ as a Unix timestamps)
        If the Next Execution Time is in the past?  Then place the RQ Job into the appropriate queue.  RQ and Workers take over from there.
 	*/
-	pub fn promote_jobs_to_rq_if_ready(app_config: &config::AppConfig) {
+
+	pub fn check_and_run_eligible_task_schedules(app_config: &config::AppConfig, internal_queue: &mut VecDeque<String>) {
 		// Developer Note: This function is analgous to the 'rq-scheduler' Python function: 'Scheduler.enqueue_jobs()'
 		let unix_timestamp_now = Utc::now().timestamp();
-        let jobs_to_enqueue = fetch_jobs_ready_for_rq(app_config, unix_timestamp_now);
-		for job in jobs_to_enqueue.iter() {
-			println!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", job);
-			// self.enqueue_job(job)
+        let task_schedule_keys = fetch_task_schedules_ready_for_rq(app_config, unix_timestamp_now);
+		for task_schedule_key in task_schedule_keys.iter() {
+			println!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", task_schedule_key);
+			match run_immediate_scheduled_task(app_config, &task_schedule_key, internal_queue) {
+				Ok(_) => {
+				},
+				Err(err) => {
+					println!("Error while attempting to run Task Schedule {} : {}", task_schedule_key, err);
+				}
+			}
 		}
 	}
 
+	pub fn run_immediate_scheduled_task(app_config: &config::AppConfig, 
+		                                task_schedule_id: &str,
+										internal_queue: &mut VecDeque<String>) -> Result<String,String> {
+
+		// 0. Remove the Task from the Schedule (so it doesn't get executed twice)
+		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let redis_result: redis::RedisResult<u64> = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id);
+		if redis_result.is_err() {
+			return Err(redis_result.err().unwrap().to_string());
+		}
+
+		// 1. Read the MariaDB database to construct a BTU Task Schedule struct.
+		let task_schedule = read_btu_task_schedule(app_config, task_schedule_id);
+		if task_schedule.is_none() {
+			return Err("Unable to read Task Schedule from MariaDB database.".to_string());
+		}
+		let task_schedule: BtuTaskSchedule = task_schedule.unwrap();  // shadow original variable.
+
+		// 2. Now that we know the Task ID, create a struct BtuTask
+		let task: BtuTask = task_schedule.build_task_from_database(app_config);
+		// println!("Fetched task information from SQL: {}", task.task_key);
+		// println!("------\n{}\n------", task);
+
+		// 3. Create an RQ Job from the BtuTask struct.
+		let rq_job: rq::RQJob = task.to_rq_job(app_config);
+		println!("Created an RQJob struct: {}", rq_job);
+
+		// 4. Save the new Job into Redis.
+		rq_job.save_to_redis(app_config);
+
+		// 5. Enqueue that job for immediate execution.
+		match rq::enqueue_job_immediate(&app_config, &rq_job.job_key_short) {
+			Ok(ok_message) => {
+				println!("Successfully enqueued: {}", ok_message);
+			}
+			Err(err_message) => {
+				println!("Error while attempting to queue job for execution: {}", err_message);
+			}
+		}
+		/* 6. Recalculate the next Run Time.
+			  Which is very easy: just push the Task Schedule ID back into the Internal Queue! :)
+		*/
+		internal_queue.push_back(task_schedule_id.to_string());
+		Ok("".to_string())
+	}
 
 	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledTask {
 		/*
