@@ -34,7 +34,7 @@ pub struct RQJob {
 	result_ttl: Option<String>,
 	started_at: Option<String>,
 	status: Option<String>,  // not initially populated
-	timeout: i32,
+	pub timeout: u32,
 	worker_name: String,
 }
 
@@ -71,7 +71,7 @@ impl RQJob {
 			result_ttl: None,
 			started_at: None,
 			status: None,
-			timeout: 3600,  // default of 3600
+			timeout: 600,  // default of 600 seconds (5 minutes)
 			worker_name: "".to_owned(),
 		}
 	}
@@ -92,7 +92,8 @@ impl RQJob {
 			( "origin", self.origin.clone() ),
 			( "description", self.description.clone() ),
 			( "started_at",  option_string_to_owned(&self.started_at) ),
-			( "created_at", utc_to_rq_string(self.created_at) )
+			( "created_at", utc_to_rq_string(self.created_at) ),
+			( "timeout", self.timeout.to_string() )
 		];
 
 		// When using hset_multiple, the values must all be of the same Type.
@@ -312,12 +313,12 @@ pub fn read_job_by_id(app_config: &AppConfig, job_id: &str) -> Result<RQJob, std
 				created_at: hashmap_value_to_utcdatetime(&rq_hashmap, "created_at").unwrap(),
 				timeout: match rq_hashmap.get("timeout") {
 					Some(timeout_string) => {
-						redis_value_to_i32(timeout_string).unwrap()
+						redis_value_to_u32(timeout_string).unwrap()
 					},
 					None => {
-						600
+						600  // default value of 600 second timeout (5 minutes)
 					}
-				},				
+				},			
 				worker_name: String::from_utf8_lossy(rq_hashmap.get("worker_name").unwrap()).to_string(),
 			};
 			return Ok(my_job)
@@ -341,6 +342,22 @@ pub fn redis_value_to_i32(redis_value: &Vec<u8>) -> Result<i32, &str> {
 		return Ok(num);
 	} 
 	else {
-		return Err("Could not convert Redis string value into an Integer.");
+		return Err("Could not convert Redis string value into a signed 32-bit integer.");
+	}
+}
+
+/// Converts a Redis byte string to a signed 32-bit integer.
+pub fn redis_value_to_u32(redis_value: &Vec<u8>) -> Result<u32, &str> {
+	/* 
+		Redis does not have an Integer type; only Strings.  
+	   	To create a Rust Integer, we transform Redis bytes to UTF-8 String, then String to integer.
+	*/
+	let num_as_string: String = String::from_utf8_lossy(redis_value).into_owned();
+	
+	if let Ok(num) = num_as_string.trim().parse::<u32>() {
+		return Ok(num);
+	} 
+	else {
+		return Err("Could not convert Redis string value into an unsigned 32-bit integer.");
 	}
 }

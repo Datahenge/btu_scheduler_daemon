@@ -76,7 +76,7 @@ pub mod task {
 		desc_long: String,
 		arguments: Option<String>,
 		path_to_function: String,	// example:  btu.manual_tests.ping_with_wait
-		max_task_duration: String,  // example:  600s
+		pub max_task_duration: u32,  // example:  600
 	}
 
 	// TODO: Need to resolve SQL injection possibility.  Probably means crabbing some more Crates.
@@ -124,7 +124,7 @@ pub mod task {
 						desc_long: row.get_opt(2).unwrap_or(Ok("".to_owned())).unwrap_or("".to_owned()),
 						arguments: row.get_opt(3).unwrap_or(Ok(None)).unwrap_or(None),
 						path_to_function:  row.get(4).unwrap_or("".to_owned()),
-						max_task_duration: row.get_opt(5).unwrap_or(Ok("600s".to_owned())).unwrap_or("600s".to_owned()),
+						max_task_duration: row.get_opt(5).unwrap_or(Ok(600)).unwrap_or(600),
 					}
 				}).unwrap();
 			println!("{}", task);
@@ -144,6 +144,7 @@ pub mod task {
 					panic!("Error while requesting pickled Python function:\n{}", error_message);
 				}
 			}
+			new_job.timeout = self.max_task_duration;
 			new_job
 		}
 

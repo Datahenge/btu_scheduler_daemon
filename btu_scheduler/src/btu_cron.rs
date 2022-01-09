@@ -1,9 +1,9 @@
 
 use cron::Schedule;
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc}; // See also: Local, TimeZone
+use chrono::{DateTime, TimeZone, Utc}; // See also: Local, TimeZone
 use chrono_tz::Tz;
 use std::str::FromStr;
-
+use chrono::NaiveDateTime;
 use crate::error::CronError;
 
 #[derive(Debug)]
@@ -122,7 +122,6 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	}
 
 	let schedule = Schedule::from_str(&this_cronstruct.to_string()).unwrap();  // Schedule requires a 7-element cron expression.
-	let mut result: Vec<DateTime<Utc>> = Vec::new();
 
 	/* 	The initial results below will be UTC datetimes.  Because that is what Schedule outputs.
 
@@ -145,20 +144,39 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	                 There is no need to recalculate Date Time values.
 	*/
 	if this_cronstruct.hour.is_none() {
+		let mut result: Vec<DateTime<Utc>> = Vec::new();
 		for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(number_of_results) {
 			result.push(utc_datetime);
 		}
 		return Ok(result)
 	}
 
+	let mut result: Vec<DateTime<Utc>> = Vec::new();
 	// Scenario #2: If the cron requires a specific Time Of Day ---> we have to adjust for UTC.
+	
+	// What is the offset between UTC and Local Time Zone?
+	// local_offset = self.timezone.utcoffset(datetime.now(self.timezone))
+	// local_offset_hours = int(local_offset.total_seconds() / 3600)  # offset in second / second in an hour
 
 	// use argument 'from_utc_datetime', otherwise the current UTC datetime.
-	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(number_of_results) {
-		// by creating a Naive Datetime from UTC, then applying a Time Zone, we effectively 'move' between UTC and Local.
+
+	let actual_utc = Utc::now();
+	// let foo_naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(actual_utc.timestamp(), 0);
+	// let foo_tz_aware = cron_timezone.from_local_datetime(&foo_naive_datetime).unwrap();
+	// let adjusted_utc: DateTime<Utc> = DateTime::<Utc>::from_utc(foo_tz_aware.naive_utc(), Utc);
+
+	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(actual_utc)).take(number_of_results) {
+
+		// This logic acquire the exact same Hour:Minute, but in local time.
 		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(utc_datetime.timestamp(), 0);
 		let tz_aware = cron_timezone.from_local_datetime(&naive_datetime).unwrap();
 		let new_utc_datetime: DateTime<Utc> = DateTime::<Utc>::from_utc(tz_aware.naive_utc(), Utc);
+
+		//use chrono::Datelike;
+		//if new_utc_datetime.date().day() != utc_datetime.date().day() {
+		//	println!("Original and new 'utc_datetime' fall on different days ({} vs {})", utc_datetime, new_utc_datetime);
+		//}
+
 		result.push(new_utc_datetime);
 	}
 	Ok(result)
@@ -207,8 +225,6 @@ pub fn future_foo(cron_expression_string: &str, _cron_timezone: Tz, _number_of_r
 
 
 /*
-
-
 
 use std::{convert::TryInto};
 
@@ -284,27 +300,6 @@ fn _day_cron_list(cron_struct: CronStruct) -> CronConverterNestedLists {
 */
 
 /*
-
-	crontab = Converter(valid_cron.get('in'), valid_cron.get('timezone'))
-	result = crontab.to_utc_crons()
-
-		self.localized_cron_list = self.localized_cron.to_list()
-		if not timezone_str:
-			self.timezone = tz.tzlocal()  # Use current Local Timezone if no input timezone
-		elif tz.gettz(timezone_str):
-			self.timezone = tz.gettz(timezone_str)
-		else:
-			raise WrongTimezoneError("Incorrect Timezone string")
-		self.cron_year = year if bool(year) else datetime.now(tz=self.timezone).year
-
-	def to_utc_cron(self) -> str:
-		"""Function to convert a localized cron string to UTC cron string.
-		This function converts only hour and day part, however the result in not reliable in some cases due to not handled DST.
-		:return: cron_string (str): the resulting cron readable by all systems.
-		"""
-		# If the hour part of Cron is the entire range of hours (*) is useless proceed
-		if self.localized_cron.parts[1].is_full():
-			return self.localized_cron.to_string()
 		# Get offset from utc in hours
 		local_offset = self.timezone.utcoffset(datetime.now(self.timezone))
 		local_offset_hours = int(local_offset.total_seconds() / 3600)  # offset in second / second in an hour
@@ -346,7 +341,6 @@ fn _day_cron_list(cron_struct: CronStruct) -> CronConverterNestedLists {
 		utc_cron.from_list(utc_cron_list)
 
 		return utc_cron.to_string()
-
 
 
 	def _range_to_full_month(self, utc_list_crontabs: CronConverterNestedLists) -> CronConverterNestedLists:
