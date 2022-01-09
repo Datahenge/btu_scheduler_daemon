@@ -10,10 +10,10 @@ The purpose of this program is to create a background daemon that:
 4. Very importantly, **enqueues** RQ jobs into the correct queues, at the correct times, based on the Schedules.  (*Redis Queue would be pretty boring without something to populate its queues; this is one such thing.*)
 
 ### Official Documentation
-GitHub Pages Site:  https://datahenge.github.io/btu_scheduler_daemon/
+The [Official Documentation](https://datahenge.github.io/btu_scheduler_daemon/) is hosted on a GitHub Pages Site.  All the markdown for that site is right here in this repository, in the `docs` directory.
 
 ### Why did I make this?
-Read [here](WHY.md) for more about why I needed to create this application.
+Read [here](docs/why_the_btu.md) for more about why I needed to create this application.
 
 ### Prerequisites
 
