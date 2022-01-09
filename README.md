@@ -9,6 +9,9 @@ The purpose of this program is to create a background daemon that:
 3. Periodically (e.g. every 15 minutes) performs a "full-refresh" of the entire BTU Task Schedule data into RQ.
 4. Very importantly, **enqueues** RQ jobs into the correct queues, at the correct times, based on the Schedules.  (*Redis Queue would be pretty boring without something to populate its queues; this is one such thing.*)
 
+### Official Documentation
+GitHub Pages Site:  https://datahenge.github.io/btu_scheduler_daemon/
+
 ### Why did I make this?
 Read [here](WHY.md) for more about why I needed to create this application.
 
