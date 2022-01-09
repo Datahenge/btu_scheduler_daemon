@@ -3,10 +3,17 @@
 
 // Main library 'btu_scheduler'
 // These modules are located in adjacent files.
+use serde::Deserialize;
 pub mod btu_cron;
 pub mod config;
 pub mod rq;
 mod tests;
+
+// This is the response from an HTTP call to Frappe REST API.
+#[derive(Deserialize, Debug)]
+struct FrappeApiMessage {
+	message: Vec<u8>
+}
 
 pub fn get_package_version() -> &'static str {
     // Completed.
@@ -60,16 +67,8 @@ pub mod task {
 	use std::fmt;
 	use mysql::prelude::Queryable;
 	use mysql::PooledConn;
-	use crate::config;
-	use crate::config::AppConfig;
+	use crate::config::{self, AppConfig};
 	use crate::rq::RQJob;
-	use serde::Deserialize;
-
-	// This is the response from an HTTP call to Frappe REST API.
-	#[derive(Deserialize, Debug)]
-	struct FrappeApiMessage {
-		message: Vec<u8>
-	}
 
 	pub struct BtuTask {
 		pub task_key: String,
@@ -82,36 +81,6 @@ pub mod task {
 
 	// TODO: Need to resolve SQL injection possibility.  Probably means crabbing some more Crates.
 	impl BtuTask {
-
-		/// Call ERPNext REST API and acquire pickled Python function as bytes.
-		fn get_pickled_function_from_web(&self, app_config: &AppConfig) -> Result<Vec<u8>, String> {
-
-			let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.get_pickled_task",
-				app_config.webserver_ip, app_config.webserver_port);
-		
-			let wrapped_response = ureq::get(&url)
-				.set("Authorization", &app_config.webserver_token)
-				.set("Content-Type", "application/json")  // json because that's what we're sending 'task_id' as below.
-				.send_json(ureq::json!({
-					"task_id": self.task_key
-					})
-				);
-			if wrapped_response.is_err() {
-				return Err(format!("Error in response: {:?}", wrapped_response.err()));
-			}
-
-			let web_server_resp = wrapped_response.unwrap()
-			;
-			assert!(web_server_resp.has("Content-Length"));
-			let _response_length = web_server_resp.header("Content-Length")
-				.and_then(|s| s.parse::<usize>().ok()).unwrap();
-
-			// Store the response in a FrappeApiMessage struct.
-			let response_json: FrappeApiMessage = web_server_resp.into_json().unwrap();
-			// println!("Reponse as JSON: {:?}", response_json.message);
-			let bytes: Vec<u8> = response_json.message;
-			return Ok(bytes);
-		}
 
 		pub fn new_from_mysql(task_key: &str, app_config: &AppConfig) -> Self {
 			let mut sql_conn: PooledConn = config::get_mysql_conn(app_config).unwrap();
@@ -162,12 +131,12 @@ pub mod task {
 			task
 		}
 
-		/// Create an RQ Job struct from a BTU Task struct.
+		/// Create an RQ Job struct from a BTU Task Schedule struct.
 		pub fn to_rq_job(&self, app_config: &AppConfig) -> RQJob {
 
 			let mut new_job: RQJob = RQJob::new_with_defaults();
-			new_job.description = self.desc_long.clone();
-			match self.get_pickled_function_from_web(app_config) {
+			new_job.description = self.desc_short.clone();
+			match crate::get_pickled_function_from_web(&self.task_key, None, app_config) {
 				Ok(byte_result) => {
 					new_job.data = byte_result;
 				}
@@ -177,6 +146,8 @@ pub mod task {
 			}
 			new_job
 		}
+
+
 	}
 
 	impl fmt::Display for BtuTask {
@@ -229,7 +200,8 @@ pub mod task_schedule {
 	use chrono_tz::Tz;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
-	use crate::config;
+	use crate::config::{self, AppConfig};
+	use crate::rq::RQJob;
 	use crate::task::BtuTask;
 
 	// Newtype Pattern:
@@ -273,6 +245,24 @@ pub mod task_schedule {
 			let task: BtuTask = BtuTask::new_from_mysql(&self.task, app_config);
 			task
 		}
+
+		/// Create an RQ Job struct from a BTU Task Schedule struct.
+		pub fn to_rq_job(&self, app_config: &AppConfig) -> RQJob {
+
+			let mut new_job: RQJob = RQJob::new_with_defaults();
+			new_job.description = self.task_description.clone();
+			match crate::get_pickled_function_from_web(&self.task, Some(&self.id), app_config) {
+				Ok(byte_result) => {
+					new_job.data = byte_result;
+				}
+				Err(error_message) => {
+					panic!("Error while requesting pickled Python function:\n{}", error_message);
+				}
+			}
+			new_job
+		}
+
+
 	}
 
 	/** Given a Task Schedule identifier (string), connect to MySQL, query the table,
@@ -331,12 +321,11 @@ pub mod task_schedule {
 pub mod scheduler {
 
 	use std::collections::VecDeque;
-use std::fmt;
+	use std::fmt;
 	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
 	use redis::{self, Commands, RedisError};
 	use crate::{btu_cron, config, rq};
-	use crate::task::BtuTask;	
 	use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
 
 	// static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
@@ -635,13 +624,8 @@ use std::fmt;
 		}
 		let task_schedule: BtuTaskSchedule = task_schedule.unwrap();  // shadow original variable.
 
-		// 2. Now that we know the Task ID, create a struct BtuTask
-		let task: BtuTask = task_schedule.build_task_from_database(app_config);
-		// println!("Fetched task information from SQL: {}", task.task_key);
-		// println!("------\n{}\n------", task);
-
 		// 3. Create an RQ Job from the BtuTask struct.
-		let rq_job: rq::RQJob = task.to_rq_job(app_config);
+		let rq_job: rq::RQJob = task_schedule.to_rq_job(app_config);
 		println!("Created an RQJob struct: {}", rq_job);
 
 		// 4. Save the new Job into Redis.
@@ -711,4 +695,37 @@ use std::fmt;
 			use_local_timezone=False    # Interpret hours in the local timezone
 		)
 	*/
+}
+
+
+use crate::config::AppConfig;
+/// Call ERPNext REST API and acquire pickled Python function as bytes.
+fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, app_config: &AppConfig) -> Result<Vec<u8>, String> {
+
+	let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.get_pickled_task",
+		app_config.webserver_ip, app_config.webserver_port);
+
+	let wrapped_response = ureq::get(&url)
+		.set("Authorization", &app_config.webserver_token)
+		.set("Content-Type", "application/json")  // json because that's what we're sending 'task_id' as below.
+		.send_json(ureq::json!({
+			"task_id": task_id,
+			"task_schedule_id": task_schedule_id
+		}));
+
+	if wrapped_response.is_err() {
+		return Err(format!("Error in response: {:?}", wrapped_response.err()));
+	}
+
+	let web_server_resp = wrapped_response.unwrap()
+	;
+	assert!(web_server_resp.has("Content-Length"));
+	let _response_length = web_server_resp.header("Content-Length")
+		.and_then(|s| s.parse::<usize>().ok()).unwrap();
+
+	// Store the response in a FrappeApiMessage struct.
+	let response_json: FrappeApiMessage = web_server_resp.into_json().unwrap();
+	// println!("Response as JSON: {:?}", response_json.message);
+	let bytes: Vec<u8> = response_json.message;
+	return Ok(bytes);
 }

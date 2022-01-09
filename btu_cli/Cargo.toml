@@ -17,5 +17,5 @@ serde_json = "1.0.72"
 ureq = { version = "2.3.1", features = ["json"] }
 
 [dependencies.btu_scheduler]
-version = "~0.1.0"
+version = "~0.2.0"
 path = "../btu_scheduler"
