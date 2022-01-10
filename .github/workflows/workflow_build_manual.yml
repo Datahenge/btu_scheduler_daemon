@@ -1,29 +1,59 @@
-on: [workflow_dispatch]
-
 name: Manually triggered workflow to build binaries
 
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the release"
+        required: true
+
 jobs:
-  build_and_test_debian11:
-    name: Build binaries for Debian 11 Bullseye
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --all-features
-  build_and_test_debian10:
-    name: Build binaries for Debian 10 Buster
+  build_and_test_ubuntu18:
+    name: Build binaries for Ubuntu 18.04
     runs-on: ubuntu-18.04
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - name: Show GLIBC
+        run: ldd --version
+
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - uses: actions-rs/cargo@v1
+
+      - name: Build
+        uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features
+          args: --release
+
+      - name: Prepare btu-daemon archive
+        run: |
+          strip target/release/btu-daemon
+          export ARCHIVE_NAME=btu-daemon-${{ env.INPUT_TAG }}-linux-x64.tar.gz
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+          tar -czvf $ARCHIVE_NAME -C target/release btu-daemon
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.INPUT_TAG }}
+          release_name: ${{ env.INPUT_TAG }}
+          body: HQ ${{ env.INPUT_TAG }}
+          draft: false
+          prerelease: true
+
+      - name: Upload scheduler binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.ARCHIVE_NAME }}
+          asset_name: ${{ env.ARCHIVE_NAME }}
+          asset_content_type: application/tar+gzip
