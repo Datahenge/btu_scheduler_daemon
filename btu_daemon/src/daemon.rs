@@ -243,10 +243,26 @@ fn main() {
         let rows_added = queue_full_refill(&mut unlocked_queue).unwrap();
         println!("{} Filled internal queue with {} Task Schedule identifiers.", checkmark_emoji, rows_added);
         drop(unlocked_queue);
-    } 
+    }
 
     // The purpose of the main() thread = Unix Domain Socket server!
     let listener: UnixListener = ipc_stream::create_socket_listener(&APP_CONFIG.lock().unwrap().socket_path);
+    {
+        // After creating the UDS file, Linux requires we change the file permissions:
+        // NOTE: Wrapping in a smaller namespace, so APP_CONFIG is automatically unlocked.
+        let unlocked_app_config: &AppConfig = &APP_CONFIG.lock().unwrap();
+        match ipc_stream::update_socket_file_permissions(&unlocked_app_config.socket_path, &unlocked_app_config.socket_file_group_owner) {
+            Ok(_) => {
+                println!("{} Successfully updated Unix Domain Socket file's permissions.", checkmark_emoji);
+            },
+            Err(error) => {
+                println!("\nERROR: Failed to modify Unix Domain Socket file's permissions:\n    {}", error);
+                println!("Frappe Web App would be unable to send commands to the BTU Scheduler.\nEnding daemon now.");
+                std::process::exit(1);
+            }
+        }
+    }
+
     for stream in listener.incoming() {
         let queue_counter_main = Arc::clone(&internal_queue);
         match stream {

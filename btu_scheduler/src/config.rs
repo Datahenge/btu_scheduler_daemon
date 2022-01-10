@@ -47,6 +47,7 @@ pub struct AppConfig {
 	pub rq_port: u32,
 	pub scheduler_polling_interval: u64,
 	pub socket_path: String,  // Dev Note:  The level of effort to make this a PathBuf or Utf8PathBuf, and incorporate with MutexGuard?  TOO MUCH!
+	pub socket_file_group_owner: String,
 	pub webserver_ip: String,
     pub webserver_port: u16,
     pub webserver_token: String
@@ -98,7 +99,7 @@ impl AppConfig {
 		println!("Below is an example of the file's contents:\n");
 		let default_config = AppConfig {
 			full_refresh_internal_secs: 180,
-			time_zone_string: "US/Eastern".to_string(),
+			time_zone_string: "UTC".to_string(),
 			mysql_user: "root".to_string(),
 			mysql_password: "foo".to_string(),
 			mysql_host: "127.0.0.1".to_string(),
@@ -108,6 +109,7 @@ impl AppConfig {
 			rq_port: 11000,
 			scheduler_polling_interval: 60,
 			socket_path: "/tmp/btu_scheduler.sock".to_string(),
+			socket_file_group_owner: "frappe_group".to_string(),
             webserver_ip: "127.0.0.1".to_string(),
             webserver_port: 8000,
             webserver_token: "token: abcd1234".to_string()
@@ -141,6 +143,8 @@ impl fmt::Display for AppConfig {
 * Path to Socket File: {}
 * RQ Host: {}
 * RQ Port: {}
+* Unix Domain Socket Path: {}
+* Socket File Group Owner: {}
 * Scheduler Polling Interval: {}
 * Seconds Between Refresh: {}
 ",
@@ -153,6 +157,8 @@ impl fmt::Display for AppConfig {
 			self.socket_path,
 			self.rq_host,
 			self.rq_port,
+			self.socket_path,
+			self.socket_file_group_owner,
 			self.scheduler_polling_interval,
 			self.full_refresh_internal_secs,
 		)

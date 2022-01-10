@@ -35,6 +35,49 @@ pub fn create_socket_listener(socket_file_path: &str) -> UnixListener {
     return listener;
 }
 
+/** 
+  This function grants full permission to a Socket File for a Linux Group name.
+
+  On Linux, when you create a socket file, the file's permissions are NOT inherited from the containing directory.
+  Instead, the owner of the socket file (the account that created it) has full permissions.  Group and Other do not.
+ */
+pub fn update_socket_file_permissions(socket_file_path: &str, unix_group_name: &str) -> std::io::Result<()> {
+
+    use std::os::unix::fs::PermissionsExt;
+    use nix::unistd::Group as LinuxGroup;
+
+    // 1. Find the unique group id (gid) for the desired Unix Group name.
+    let unix_group: Option<LinuxGroup> = LinuxGroup::from_name(unix_group_name)?;
+    if unix_group.is_none() {
+        let this_error = std::io::Error::new(std::io::ErrorKind::Other, format!("Unable to find a Linux Group with name = '{}'", unix_group_name));
+        return Err(this_error);
+    }
+    let unix_group = unix_group.unwrap();  // unwrap and shadow the original variable.
+    let unix_group_uid = unix_group.gid;
+
+    // 2. Change the socket file's group owner, to that group.
+    nix::unistd::chown(socket_file_path, None, Some(unix_group_uid))?;
+
+    // 3. Update the socket file's permissions, granting Read, Write, and Execute to the Linux user group (passed via argument)
+    let mut permissions = std::fs::metadata(socket_file_path)?.permissions();
+    permissions.set_mode(0o140775); // set permissions to 775 (rwxrwxr-x)
+    /* 
+        IMPORTANT: The code above does NOT modify the file.  Just an in-memory Permissions struct.
+        The line below is required to update the disk:
+    */
+    std::fs::set_permissions(socket_file_path, permissions)?;
+
+    // Sanity check: Re-read the permissions from disk and compare.
+    /*
+    let permissions = std::fs::metadata(socket_file_path)?.permissions();
+    assert_eq!(
+        format!("{:o}", permissions.mode()),
+        "140775"
+    );
+     */
+    Ok(())
+}
+
 
 pub fn handle_client_request(mut stream: UnixStream, 
                              queue: Arc<Mutex<VecDeque<std::string::String>>>,

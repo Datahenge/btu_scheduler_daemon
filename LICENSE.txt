@@ -1,6 +1,6 @@
 
 BTU Scheduler Daemon is dual-licensed under The MIT License [1] and
-Apache 2.0 License [2]. Copyright (c) 2021, Datahenge LLC and contributors.
+Apache 2.0 License [2]. Copyright (c) 2022, Datahenge LLC and contributors.
 
 Nota Bene: This is same as the Rust Project's own license.
 
@@ -9,7 +9,7 @@ Nota Bene: This is same as the Rust Project's own license.
 ~~~~
 The MIT License (MIT)
 
-Copyright (c) 2021, Datahenge LLC.
+Copyright (c) 2022, Datahenge LLC.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
