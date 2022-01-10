@@ -37,9 +37,16 @@ jobs:
       - name: Prepare btu-daemon archive
         run: |
           strip target/release/btu-daemon
-          export ARCHIVE_NAME=btu-daemon-${{ env.INPUT_TAG }}-linux-x64.tar.gz
-          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
-          tar -czvf $ARCHIVE_NAME -C target/release btu-daemon
+          export ARCHIVE_NAME_DAEMON=btu-daemon-${{ env.INPUT_TAG }}-linux-x64.tar.gz
+          echo "ARCHIVE_NAME_DAEMON=$ARCHIVE_NAME_DAEMON" >> $GITHUB_ENV
+          tar -czvf $ARCHIVE_NAME_DAEMON -C target/release btu-daemon
+
+      - name: Prepare btu-cli archive
+        run: |
+          strip target/release/btu
+          export ARCHIVE_NAME_CLI=btu-${{ env.INPUT_TAG }}-linux-x64.tar.gz
+          echo "ARCHIVE_NAME_CLI=$ARCHIVE_NAME_CLI" >> $GITHUB_ENV
+          tar -czvf $ARCHIVE_NAME_CLI -C target/release btu
 
       - name: Create release
         id: create_release
@@ -53,12 +60,22 @@ jobs:
           draft: false
           prerelease: true
 
-      - name: Upload scheduler binary
+      - name: Upload scheduler daemon binary
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.ARCHIVE_NAME }}
-          asset_name: ${{ env.ARCHIVE_NAME }}
+          asset_path: ${{ env.ARCHIVE_NAME_DAEMON }}
+          asset_name: ${{ env.ARCHIVE_NAME_DAEMON }}
+          asset_content_type: application/tar+gzip
+
+      - name: Upload CLI binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.ARCHIVE_NAME_CLI }}
+          asset_name: ${{ env.ARCHIVE_NAME_CLI }}
           asset_content_type: application/tar+gzip
