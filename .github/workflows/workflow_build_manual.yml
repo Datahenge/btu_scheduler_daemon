@@ -1,0 +1,29 @@
+on: [workflow_dispatch]
+
+name: Manually triggered workflow to build binaries
+
+jobs:
+  build_and_test_debian11:
+    name: Build binaries for Debian 11 Bullseye
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all-features
+  build_and_test_debian10:
+    name: Build binaries for Debian 10 Buster
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all-features
