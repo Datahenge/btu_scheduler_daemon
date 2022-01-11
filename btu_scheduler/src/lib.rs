@@ -706,9 +706,16 @@ fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, 
 	let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.get_pickled_task",
 		app_config.webserver_ip, app_config.webserver_port);
 
-	let wrapped_response = ureq::get(&url)
+	let mut request = ureq::get(&url)
 		.set("Authorization", &app_config.webserver_token)
-		.set("Content-Type", "application/json")  // json because that's what we're sending 'task_id' as below.
+		.set("Content-Type", "application/json");  // Using json, because that's what we're sending 'task_id' as below.
+
+		// If Frappe is running via gunicorn, in DNS Multi-tenancy mode, then we have to pass a "Host" header.
+    if app_config.webserver_host_header.is_some() {
+        request = request.set("Host", &app_config.webserver_host_header.as_ref().unwrap());
+    }
+
+	let wrapped_response = request
 		.send_json(ureq::json!({
 			"task_id": task_id,
 			"task_schedule_id": task_schedule_id

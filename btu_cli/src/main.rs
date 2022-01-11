@@ -4,7 +4,6 @@ use std::io::Read;
 
 use clap::{App, AppSettings, Arg, SubCommand};  //, ArgMatches, AppSettings;
 use serde_json::Value   as SerdeJsonValue;
-use ureq::Request;
 
 use btu_scheduler::{
     config::AppConfig,
@@ -156,10 +155,15 @@ fn cli_btu_test_pickler(app_config: &AppConfig) {
     let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_pickler",
         app_config.webserver_ip, app_config.webserver_port);
 
-    let resp = ureq::get(&url)
+    let mut request = ureq::get(&url)
         .set("Authorization", &app_config.webserver_token)
-        .set("Content-Type", "application/octet-stream")
-		.call().unwrap();
+        .set("Content-Type", "application/octet-stream");
+
+    // If Frappe is running via gunicorn, in DNS Multi-tenancy mode, then we have to pass a "Host" header.
+    if app_config.webserver_host_header.is_some() {
+        request = request.set("Host", &app_config.webserver_host_header.as_ref().unwrap());
+    }
+    let resp = request.call().unwrap();
 
     assert!(resp.has("Content-Length"));
     let len = resp.header("Content-Length")
@@ -211,12 +215,16 @@ fn cli_list_tasks(app_config: &AppConfig) {
 fn cli_ping_frappe_web(app_config: &AppConfig) {
     let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_ping",
         app_config.webserver_ip, app_config.webserver_port);
-    // println!("Calling URL: {}", url);
-    let body: Request = ureq::get(&url)
+
+    let mut request = ureq::get(&url)
         .set("Authorization", &app_config.webserver_token)
         .set("Content-Type", "application/json");
+    // If Frappe is running via gunicorn, in DNS Multi-tenancy mode, then we have to pass a "Host" header.        
+    if app_config.webserver_host_header.is_some() {
+        request = request.set("Host", &app_config.webserver_host_header.as_ref().unwrap());
+    }
 
-    match body.call() {
+    match request.call() {
         Ok(response) => {
             let body = response.into_string().unwrap();
             println!("HTTP Response as String: {}", body);

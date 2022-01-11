@@ -50,6 +50,7 @@ pub struct AppConfig {
 	pub socket_file_group_owner: String,
 	pub webserver_ip: String,
     pub webserver_port: u16,
+	pub webserver_host_header: Option<String>,
     pub webserver_token: String
 }
 
@@ -112,6 +113,7 @@ impl AppConfig {
 			socket_file_group_owner: "frappe_group".to_string(),
             webserver_ip: "127.0.0.1".to_string(),
             webserver_port: 8000,
+			webserver_host_header: Some("mysubdomain.domain.com".to_string()),
             webserver_token: "token: abcd1234".to_string()
 		};
 		let toml_string = toml::to_string(&default_config).unwrap();
@@ -147,6 +149,10 @@ impl fmt::Display for AppConfig {
 * Socket File Group Owner: {}
 * Scheduler Polling Interval: {}
 * Seconds Between Refresh: {}
+* Web Server IP: {},
+* Web Server Port: {},
+* Web Server Host Header: {:?},
+* Web Server Token: {},
 ",
 			CONFIG_FILE_PATH,
 			self.mysql_user,
@@ -161,6 +167,10 @@ impl fmt::Display for AppConfig {
 			self.socket_file_group_owner,
 			self.scheduler_polling_interval,
 			self.full_refresh_internal_secs,
+			self.webserver_ip,
+			self.webserver_port,
+			self.webserver_host_header,
+			self.webserver_token
 		)
 	}
 }

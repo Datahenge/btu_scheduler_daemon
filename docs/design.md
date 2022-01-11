@@ -76,5 +76,7 @@ When installed on a Frappe site, the **BTU App** exposes the following HTTP endp
 
 * `get_pickled_task(task_id)`
 * `test_ping()`
+
+##### Deprecated?
 * `test_hello_world_bytes()`
 * `test_function_ping_now_bytes()`
