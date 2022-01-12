@@ -169,10 +169,12 @@ pub fn enqueue_job_immediate(app_config: &AppConfig, job_id: &str) -> Result<Str
 	}
 
 	// 2. Push the job onto the queue.
+	// NOTE: The return value of 'rpush' is an integer, representing the length of the List, after the completion of the push operation.
 	let push_result: Result<u32, RedisError> = redis_conn.rpush(&queue_key, job_id);
 	match push_result {
 		Ok(foo) => {
-			return Ok(format!("Enqueued job {} for immediate execution.  Return value from rpush: {}", job_id, foo))
+			return Ok(format!("Enqueued job '{}' for immediate execution.
+			Length of list after 'rpush' operation: {}", job_id, foo))
 		}
 		Err(bar) => {
 			return Err(std::io::Error::new(std::io::ErrorKind::Other, bar));

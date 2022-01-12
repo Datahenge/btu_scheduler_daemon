@@ -112,6 +112,18 @@ fn main() {
         println!("Cannot initialize daemon without Redis RQ connection; closing now.");
         std::process::exit(1);    
     }
+
+    // Another sanity check; try to connect to SQL before going any further.
+    match btu_scheduler::validate_sql_credentials(&temp_app_config) {
+        Ok(_) => {
+        },
+        Err(error) => {
+            println!("{}", error);
+            println!("Cannot initialize daemon without connection to MySQL database; closing now.");
+            std::process::exit(1);    
+        }
+    }
+
     // Finished reading APP_CONFIG, so we should release the lock.
     drop(temp_app_config);
 
@@ -141,7 +153,7 @@ fn main() {
                             // We now have an owned struct BtuTaskSchedule.
                             let _foo = scheduler::add_task_schedule_to_rq(&*unlocked_app_config, &btu_task_schedule);
                         } else {
-                            println!("Error: Was unable to read the SQL database and find a record for BTU Task Schedule = '{}'", next_task_schedule_id);
+                            println!("Error: Unable to read the SQL database and find a record for BTU Task Schedule = '{}'", next_task_schedule_id);
                         }                              
                     }
                     println!("{} values remain in internal queue.", (*unlocked_queue).len());

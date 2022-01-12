@@ -3,11 +3,15 @@
 
 // Main library 'btu_scheduler'
 // These modules are located in adjacent files.
+use mysql::PooledConn;
+use mysql::prelude::Queryable;
 use serde::Deserialize;
+
 pub mod btu_cron;
 pub mod config;
 pub mod rq;
 mod tests;
+use crate::config::AppConfig;
 
 // This is the response from an HTTP call to Frappe REST API.
 #[derive(Deserialize, Debug)]
@@ -699,7 +703,7 @@ pub mod scheduler {
 }
 
 
-use crate::config::AppConfig;
+
 /// Call ERPNext REST API and acquire pickled Python function as bytes.
 fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, app_config: &AppConfig) -> Result<Vec<u8>, String> {
 
@@ -736,4 +740,47 @@ fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, 
 	// println!("Response as JSON: {:?}", response_json.message);
 	let bytes: Vec<u8> = response_json.message;
 	return Ok(bytes);
+}
+
+
+/**
+
+  Validates the SQL connection by performing a simple query against SQL table 'tabDocType'
+*/
+pub fn validate_sql_credentials(app_config: &config::AppConfig) -> Result<(), std::io::Error> {
+
+	let sql_conn: Result<PooledConn, mysql::Error> = config::get_mysql_conn(&app_config);
+	if sql_conn.is_err() {
+		let sql_error_string: String = sql_conn.err().unwrap().to_string();
+		let io_error = std::io::Error::new(std::io::ErrorKind::Other, sql_error_string);
+		return Err(io_error);
+	}
+	let mut sql_conn: PooledConn = sql_conn.unwrap();  // create a connection to the MariaDB database.
+
+	// 2. Run query, and map result into a new Result<Option<BtuTaskSchedule>>
+	//    TODO: Investigate resolving SQL injection.  Probably means finding a helpful 3rd party crate.
+	let query_string: &'static str = "SELECT count(*) FROM tabDocType;";
+
+	let query_result: Result<Option<u64>, mysql::Error> = sql_conn.query_first(query_string);
+	match query_result {
+		Ok(result_option) => {
+			if result_option.is_none() {
+				// Return an Error if there are no results.
+				let io_error = std::io::Error::new(std::io::ErrorKind::Other, format!("Query of DocType table returned no results."));
+				return Err(io_error);				
+			}
+			let number_of_doctypes: u64 = result_option.unwrap();
+			if number_of_doctypes == 0 {
+				// Return an Error if SQL table `tabDocType` has no zero rows (unlikely condition, but worth checking)
+				let io_error = std::io::Error::new(std::io::ErrorKind::Other, format!("Query of DocType table returned 0 rows."));
+				return Err(io_error);
+			}
+		},
+		Err(error) => {
+			let io_error = std::io::Error::new(std::io::ErrorKind::Other, error);
+			return Err(io_error);
+		}
+	}
+
+	Ok(())
 }

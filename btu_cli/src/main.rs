@@ -152,7 +152,7 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
 
 fn cli_btu_test_pickler(app_config: &AppConfig) {
     // Function calls the Frappe web server, and asks for 'Hello World' in bytes.
-    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_pickler",
+    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_function_ping_now_bytes",
         app_config.webserver_ip, app_config.webserver_port);
 
     let mut request = ureq::get(&url)
