@@ -1,0 +1,20 @@
+CHALLENGE:
+
+
+Current time is January 8th, 7:04 PM Pacific (3 AM UTC)
+
+I want to run some late-night or early-morning tasks.
+
+
+TS000001 at 2022-01-08 19:06:00 PST
+TS000002 at 2022-01-08 19:30:00 PST
+TS000003 at 2022-01-09 23:30:00 PST  (WRONG, one day too far ahead)
+TS000004 at 2022-01-10 01:00:00 PST  (WRONG, one day too far ahead)
+TS000005 at 2022-01-08 19:30:00 PST
+
+
+IF...
+    Local Time DAY OF YEAR <> UTC DAY OF YEAR
+    AND UTC Hour/Minute > TARGET Hour/Minute
+    Subtract 1 day?
+    OOOOOF

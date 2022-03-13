@@ -136,7 +136,7 @@ fn main() {
       ----------------
     */
     let queue_counter_1 = Arc::clone(&internal_queue);
-    let thread_handle_1 = thread::spawn(move || {
+    let thread_handle_1 = thread::Builder::new().name("1_Internal_Queue".to_string()).spawn(move || {
         loop {
             // Attempt to acquire a lock
             if let Ok(mut unlocked_queue) = queue_counter_1.lock() {
@@ -153,7 +153,7 @@ fn main() {
                             // We now have an owned struct BtuTaskSchedule.
                             let _foo = scheduler::add_task_schedule_to_rq(&*unlocked_app_config, &btu_task_schedule);
                         } else {
-                            println!("Error: Unable to read the SQL database and find a record for BTU Task Schedule = '{}'", next_task_schedule_id);
+                            println!("Error: Unable to find SQL record for BTU Task Schedule = '{}'\n(verify BTU Configuration has a Time Zone)", next_task_schedule_id);
                         }                              
                     }
                     println!("{} values remain in internal queue.", (*unlocked_queue).len());
@@ -162,7 +162,12 @@ fn main() {
             thread::sleep(Duration::from_millis(1250));  // Yield control to another thread.
         }
     });
-    handles.push(thread_handle_1);
+    if thread_handle_1.is_err() {
+        println!("Cannot spawn new thread '1_Internal_Queue'.  Error information below.  Ending program.");
+        println!("{:?}", thread_handle_1.err());
+        std::process::exit(1);    
+    }
+    handles.push(thread_handle_1.unwrap());
 
     /*
       ----------------
@@ -175,7 +180,7 @@ fn main() {
       ----------------
     */
     let queue_counter_2 = Arc::clone(&internal_queue);
-    let thread_handle_2 = thread::spawn(move || {
+    let thread_handle_2 = thread::Builder::new().name("2_Auto_Refill".to_string()).spawn(move || {
 
         let mut stopwatch: Instant = Instant::now();  // used to keep track of time elapsed.
         loop {
@@ -202,7 +207,12 @@ fn main() {
             thread::sleep(Duration::from_millis(750));  // Yield control to another thread for a while.
         } // end of loop
     });
-    handles.push(thread_handle_2);
+    if thread_handle_2.is_err() {
+        println!("Cannot spawn new thread '2_Auto_Refill'.  Error information below.  Ending program.");
+        println!("{:?}", thread_handle_2.err());
+        std::process::exit(1);    
+    }
+    handles.push(thread_handle_2.unwrap());
 
     /*
       ----------------
@@ -214,9 +224,9 @@ fn main() {
     */
     
     let queue_counter_3 = Arc::clone(&internal_queue);
-    let thread_handle_3 = thread::spawn(move || {  // this 'move' is required to own variable 'scheduler_polling_interval'
+    let thread_handle_3 = thread::Builder::new().name("3_Scheduler".to_string()).spawn(move || {  // this 'move' is required to own variable 'scheduler_polling_interval'
         thread::sleep(Duration::from_secs(10)); // One-time delay of execution: this gives the other Threads a chance to initialize.
-        println!("--> Thread #3 launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
+        println!("--> Thread '3_Scheduler' launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
         loop {
             // This thread requires a lock on the Internal Queue, so that after a Task runs, it can be rescheduled.
             let stopwatch: Instant = Instant::now();
@@ -230,7 +240,12 @@ fn main() {
             thread::sleep(Duration::from_secs(scheduler_polling_interval - elapsed_seconds)); // wait N seconds before trying again.
         }
     });
-    handles.push(thread_handle_3);
+    if thread_handle_3.is_err() {
+        println!("Cannot spawn new thread '3_Scheduler'.  Error information below.  Ending program.");
+        println!("{:?}", thread_handle_3.err());
+        std::process::exit(1);    
+    }
+    handles.push(thread_handle_3.unwrap());
 
     // ----------------
     // Main Thread:  a Unix Domain Socket listener.
@@ -279,7 +294,7 @@ fn main() {
         let queue_counter_main = Arc::clone(&internal_queue);
         match stream {
             Ok(unwrapped_stream) => {
-                thread::spawn(move || {
+                let handler_result = thread::Builder::new().name("Unix_Socket_Handler".to_string()).spawn(move || {
                     // Call a function to handle whatever request is being made by a remote Client.
                     let request_result = ipc_stream::handle_client_request(unwrapped_stream, 
                                                                            queue_counter_main,
@@ -289,6 +304,9 @@ fn main() {
                     }
                     thread::sleep(Duration::from_millis(1250));  // Yield control to another thread.
                 });
+                if handler_result.is_err() {
+                    println!("Error in thread 'Unix_Socket_Handler': {:?}", handler_result.err());
+                }
             }
             Err(err) => {
                 println!("Error while attempting to unwrap UnixListener stream: {}.  Will keep listening for more traffic.", err);
