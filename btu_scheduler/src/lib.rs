@@ -235,7 +235,7 @@ pub mod task_schedule {
 		task_description: String,
 		enabled: u8,
 		queue_name: String,
-		redis_job_id: String,
+		redis_job_id: Option<String>,  // Using Option here, because it's quite possible for BTU App to create a schedule, but not populate this!
 		argument_overrides: Option<String>,  // MUST use Option here, if the result is at all Nullable.
 		schedule_description: String,
 		pub cron_string: String,
