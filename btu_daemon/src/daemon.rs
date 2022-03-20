@@ -47,10 +47,17 @@ fn queue_full_refill(queue: &mut VecDeque<String>) ->  mysqlResult<u32> {
 
     conn.query_iter("SELECT `name` FROM `tabBTU Task Schedule` WHERE enabled = 1 ORDER BY name;")
     .unwrap()
-    .for_each(|row| {
-        let r: String = mysql::from_row(row.unwrap());  // each value of r is a 'name' from the SQL table.  The primary key of BTU Task Schedule .
-        queue.push_back(r);
-        rows_added += 1;
+    .for_each(|row_result| {
+        match row_result {
+            Ok(row) => {
+                let r: String = mysql::from_row(row);  // each value of r is a 'name' from the SQL table.  The primary key of BTU Task Schedule .
+                queue.push_back(r);
+                rows_added += 1;
+            },
+            Err(error) => {
+                println!("Error with SQL row result: {:?}", error);
+            }
+        }
     });
     Ok(rows_added)
 }
@@ -142,21 +149,29 @@ fn main() {
             if let Ok(mut unlocked_queue) = queue_counter_1.lock() {
                 // Lock acquired.
                 if ! (*unlocked_queue).is_empty() {
-                    let next_task_schedule_id = (*unlocked_queue).pop_front().unwrap();  // Pop the next value out of the queue (FIFO)
 
-                    // dbg!("{} : Popped value '{}' from internal queue.  Calculating next execution times, and writing them in RQ Database.",
-                    //    get_datetime_now_string(), next_task_schedule_id);
+                    let next_task_schedule_id: String;
+                    match (*unlocked_queue).pop_front() {  // Pop the next value out of the queue (FIFO)
+                        Some(value) => {
+                            next_task_schedule_id = value;
+                            // dbg!("{} : Popped value '{}' from internal queue.  Calculating next execution times, and writing them in RQ Database.",
+                            // get_datetime_now_string(), next_task_schedule_id);
 
-                    if let Ok(unlocked_app_config) = APP_CONFIG.lock() {
-                        let sql_result =  task_schedule::read_btu_task_schedule(&*unlocked_app_config, &next_task_schedule_id);
-                        if let Some(btu_task_schedule) = sql_result {
-                            // We now have an owned struct BtuTaskSchedule.
-                            let _foo = scheduler::add_task_schedule_to_rq(&*unlocked_app_config, &btu_task_schedule);
-                        } else {
-                            println!("Error: Unable to find SQL record for BTU Task Schedule = '{}'\n(verify BTU Configuration has a Time Zone)", next_task_schedule_id);
-                        }                              
+                            if let Ok(unlocked_app_config) = APP_CONFIG.lock() {
+                                let sql_result =  task_schedule::read_btu_task_schedule(&*unlocked_app_config, &next_task_schedule_id);
+                                if let Some(btu_task_schedule) = sql_result {
+                                    // We now have an owned struct BtuTaskSchedule.
+                                    let _foo = scheduler::add_task_schedule_to_rq(&*unlocked_app_config, &btu_task_schedule);
+                                } else {
+                                    println!("Error: Unable to find SQL record for BTU Task Schedule = '{}'\n(verify BTU Configuration has a Time Zone)", next_task_schedule_id);
+                                }                              
+                            }
+                            println!("{} values remain in internal queue.", (*unlocked_queue).len());
+                        },
+                        None => {
+                        }
                     }
-                    println!("{} values remain in internal queue.", (*unlocked_queue).len());
+
                 }
             }
             thread::sleep(Duration::from_millis(1250));  // Yield control to another thread.
@@ -231,8 +246,11 @@ fn main() {
             // This thread requires a lock on the Internal Queue, so that after a Task runs, it can be rescheduled.
             let stopwatch: Instant = Instant::now();
             if let Ok(mut unlocked_queue) = queue_counter_3.lock() {
-                // Successfully achieved a lock...
-                scheduler::check_and_run_eligible_task_schedules(&APP_CONFIG.lock().unwrap(), &mut *unlocked_queue);
+                // Successfully achieved a lock on the queue.
+                if let Ok(app_config) = &APP_CONFIG.lock() {
+                    // Successfully achieved a lock on the Application Configuration.
+                    scheduler::check_and_run_eligible_task_schedules(app_config, &mut *unlocked_queue);
+                }
             }
             let elapsed_seconds = stopwatch.elapsed().as_secs();  // time just spent working on RQ database.
             // I want this thread to execute at roughly the same interval.
