@@ -297,7 +297,7 @@ pub mod task_schedule {
 		*/
 
 		// TODO: Error handling if the query fails.
-		let task_schedules: Vec<BtuTaskSchedule> = sql_conn
+		let result_task_schedules: Result<Vec<BtuTaskSchedule>, mysql::Error> = sql_conn
 			.query_map(query_syntax, |row: mysql::Row| {
 				BtuTaskSchedule {
 					id:  row.get(0).unwrap(),
@@ -311,14 +311,26 @@ pub mod task_schedule {
 					cron_string:  row.get(8).unwrap(),
 					cron_timezone: row.get::<String, _>(9).unwrap().parse().unwrap()
 				}
-			}).unwrap();
-	
-		// There is either exactly 1 SQL row, or zero.
-		// Therefore the syntax below uses 'next()' to either fetch it, or return a None.
+			});
+
+		let task_schedules: Vec<BtuTaskSchedule>;  // uninitialized until match below -->
+		match result_task_schedules {
+			Ok(result) => {
+				task_schedules = result;
+			}
+			Err(mysql_error) => {
+				println!("MySQL Error encountered in read_btu_task_schedule(): {:?}", mysql_error);
+				return None;
+			}
+		}
+
+  		// The SQL query returns 0 or 1 rows.  The syntax below uses 'next()' to fetch the first element in the Vector.
 		if let Some(btu_task_schedule) =  task_schedules.iter().next() {
 			Some(btu_task_schedule.to_owned())
 		} else {
-			None  // no such record in the MySQL table.
+			// No results returned from SQL query.
+			println!("Cannot find a record in 'tabBTU Task Schedule' with primary key '{}'", task_schedule_id);
+			None
 		}       
 	}
 }
