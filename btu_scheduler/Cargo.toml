@@ -9,6 +9,8 @@ keywords = ["frappe", "erpnext", "queue", "scheduler"]
 license = "MIT OR Apache-2.0"
 # readme = "README.md"
 # repository = "https://github.com/datahenge/btu_scheduler"
+
+# NOTE: This version below will be picked up by "btu_daemon --version"
 version = "0.2.3"
 edition = "2018"
 

@@ -41,3 +41,16 @@ pub fn exit_msg<T: Display>(code: i32, msg: T) -> ! {
     let _ = stdout().write_all(msg.to_string().as_bytes());
     std::process::exit(code);
 }
+
+
+pub fn target_linux_distro() -> &'static str {
+    if cfg!(target_linux_distro = "Debian 10") {
+        "Debian 10"
+    }
+    else if cfg!(target_linux_distro = "Debian 11") {
+        "Debian 11"
+    }
+    else {
+        "Unknown Linux Distribution"
+    } 
+}

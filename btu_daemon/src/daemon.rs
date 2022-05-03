@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},  // Barrier
     thread,
     time::{Duration, Instant},
+    env
 };
 
 // Crates.io
@@ -92,6 +93,16 @@ static APP_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
 });
 
 fn main() {
+
+    // Check if called with --version.  If so, display some information, then exit.
+    // rustc --check-cfg 'values(foo, "red", "green")' --check-cfg 'values(bar, "up", "down")'};
+    let args: Vec<String> = env::args().collect();
+    if args.len() == 2 && &args[1] == "--version" {
+        println!("Version: {}", btu_scheduler::get_package_version());
+        println!("Linux Distribution: {}", common::target_linux_distro());
+        std::process::exit(0);  // exit cleanly
+    }
+
     let checkmark_emoji = '\u{2713}';
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // We need 3 additional threads, besides the main thread.
     // Create a new VecDeque, and -move- into an ArcMutex.  This allows the queue to be passed between threads.
