@@ -40,7 +40,8 @@ mod error {
 pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
 	pub time_zone_string: String,
-	pub email_on_level: LevelWrapper,  // Would rather use tracing::Level, but I don't know how to Serialize and Deserialize it. :/
+	pub email_on_level: LevelWrapper,  // A wrapper around Level, because the tracing crate doesn't implement Serialize and Deserialize.
+	pub email_addresses: Option<Vec<String>>,
 	mysql_user: String,
 	mysql_password: String,
 	mysql_host: String,
@@ -49,7 +50,7 @@ pub struct AppConfig {
 	pub rq_host: String,
 	pub rq_port: u32,
 	pub scheduler_polling_interval: u64,
-	pub socket_path: String,  // Dev Note:  The level of effort to make this a PathBuf or Utf8PathBuf, and incorporate with MutexGuard?  TOO MUCH!
+	pub socket_path: String,  // Dev Note: The level of effort to make this a PathBuf or Utf8PathBuf, and incorporate with MutexGuard: just too much!
 	pub socket_file_group_owner: String,
 	pub webserver_ip: String,
     pub webserver_port: u16,
@@ -105,6 +106,7 @@ impl AppConfig {
 			full_refresh_internal_secs: 180,
 			time_zone_string: "UTC".to_string(),
 			email_on_level: LevelWrapper::new(Level::DEBUG),
+			email_addresses: None,
 			mysql_user: "root".to_string(),
 			mysql_password: "foo".to_string(),
 			mysql_host: "127.0.0.1".to_string(),
