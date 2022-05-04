@@ -1,26 +1,24 @@
 #![forbid(unsafe_code)]
+#![allow(unused_imports)]
 
-use std::{
-    collections::{VecDeque},  // VecDeque used as an internal queue, holding BTU Task Schedule identifiers.  
-    os::unix::net::{UnixListener},
-    sync::{Arc, Mutex},  // Barrier
-    thread,
-    time::{Duration, Instant},
-    env
-};
+use std::{collections::{VecDeque}, env, fmt::Debug, os::unix::net::UnixListener, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
 
 // Crates.io
 use chrono::prelude::*;
 use mysql::Result as mysqlResult;
 use mysql::prelude::Queryable;
 use once_cell::sync::Lazy;
+use tracing::{debug, error, info, span, warn, Level};
+use tracing_subscriber::{FmtSubscriber, Registry, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
+
+pub mod common;
+pub mod ipc_stream;
+pub mod logging;
 
 // This Crate
 use btu_scheduler::{config, rq, scheduler, task_schedule};
 use btu_scheduler::config::AppConfig;
-pub mod ipc_stream;
-pub mod common;
-
+use logging::CustomLayer;
 
 // GitHub Issue where Brian and Adam discuss Rust thread locking:
 // https://github.com/aeshirey/aeshirey.github.io/issues/5
@@ -56,7 +54,7 @@ fn queue_full_refill(queue: &mut VecDeque<String>) ->  mysqlResult<u32> {
                 rows_added += 1;
             },
             Err(error) => {
-                println!("Error with SQL row result: {:?}", error);
+                error!("Error with SQL row result: {:?}", error);
             }
         }
     });
@@ -79,14 +77,14 @@ static APP_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
     match AppConfig::new_from_toml_file() {
         Ok(app_config) => {
             if app_config.tz().is_err() {
-                println!("Cannot parse time zone string in TOML configuration file: '{}'", app_config.time_zone_string);
-                println!("See this article for a list of valid names:\n{}", "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones");
+                error!("Cannot parse time zone string in TOML configuration file: '{}'", app_config.time_zone_string);
+                error!("See this article for a list of valid names:\n{}", "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones");
                 std::process::exit(1);
             }
             Mutex::new(app_config)
         }
         Err(error) => {
-            println!("Error while creating AppConfig from TOML configuration file.\n{}", error);
+            error!("Error while creating AppConfig from TOML configuration file.\n{}", error);
             std::process::exit(1);
         }
     }
@@ -94,23 +92,22 @@ static APP_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
 
 fn main() {
 
-    // Check if called with --version.  If so, display some information, then exit.
-    // rustc --check-cfg 'values(foo, "red", "green")' --check-cfg 'values(bar, "up", "down")'};
+    // when daemon called with argument '--version', display some information then exit.
     let args: Vec<String> = env::args().collect();
-    if args.len() == 2 && &args[1] == "--version" {
+    if (args.len() == 2) && (&args[1] == "--version") {
         println!("Version: {}", btu_scheduler::get_package_version());
         println!("Linux Distribution: {}", common::target_linux_distro());
-        std::process::exit(0);  // exit cleanly
+        std::process::exit(0);  // exit with success code
     }
+
+    tracing_subscriber::registry().with(CustomLayer).init();
 
     let checkmark_emoji = '\u{2713}';
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // We need 3 additional threads, besides the main thread.
     // Create a new VecDeque, and -move- into an ArcMutex.  This allows the queue to be passed between threads.
-    let internal_queue = Arc::new(Mutex::new(VecDeque::<String>::new()));  // using a 'turbofish' to specify the type of the VecDeque (we want Strings)
-    
-    // Lock the APP_CONFIG for just a moment, to populate some immutable variables.
-    let temp_app_config = APP_CONFIG.lock().unwrap();
+    let internal_queue = Arc::new(Mutex::new(VecDeque::<String>::new()));  // using a 'turbofish' to specify the type of the VecDeque (String in this case)
 
+    let temp_app_config = APP_CONFIG.lock().unwrap();  // Lock APP_CONFIG for a moment, to populate some immutable variables.
     /*
       The interval at which 'Next Execution Times' are examined, to potentially trigger RQ inserts.\
       I recommend a value of no-more-than 60 seconds.  Otherwise you risk missing a Cron Datetime.
@@ -127,7 +124,7 @@ fn main() {
        to handle race conditions on server boot.
     */
     if rq::get_redis_connection(&temp_app_config).is_none() {
-        println!("Cannot initialize daemon without Redis RQ connection; closing now.");
+        error!("Cannot initialize daemon without Redis RQ connection; closing now.");
         std::process::exit(1);    
     }
 
@@ -136,8 +133,8 @@ fn main() {
         Ok(_) => {
         },
         Err(error) => {
-            println!("{}", error);
-            println!("Cannot initialize daemon without connection to MySQL database; closing now.");
+            error!("{}", error);
+            error!("Cannot initialize daemon without a connection to Frappe MySQL database; closing now.");
             std::process::exit(1);    
         }
     }
@@ -189,8 +186,8 @@ fn main() {
         }
     });
     if thread_handle_1.is_err() {
-        println!("Cannot spawn new thread '1_Internal_Queue'.  Error information below.  Ending program.");
-        println!("{:?}", thread_handle_1.err());
+        error!("Cannot spawn new thread '1_Internal_Queue'.  Error information below.  Ending program.");
+        error!("{:?}", thread_handle_1.err());
         std::process::exit(1);    
     }
     handles.push(thread_handle_1.unwrap());

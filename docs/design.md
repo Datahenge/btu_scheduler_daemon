@@ -80,3 +80,17 @@ When installed on a Frappe site, the **BTU App** exposes the following HTTP endp
 ##### Deprecated?
 * `test_hello_world_bytes()`
 * `test_function_ping_now_bytes()`
+
+### Questions and Answers
+Q: Does btu-daemon need to run as root?
+A: Yes, because we're storing credentials (email, Frappe login token) in root-owned files with permissions = 600
+
+Q: Isn't that insecure?
+A: Only if someone gains root access to your server.  In which case, they have access to everything anyway.
+
+Q: You could encrypt the passwords.
+A: Yes, but BTU runs as an unattended daemon.  It would have to be able to decrypt the passwords on its own.  Which means storing the keys or hashes
+on the server too.  You might slow down an attacker for a minute or two.  That's all.
+
+Q: You could require a human enter a password when initially starting the daemon.
+A: I could.  But if the server reboots or the power cycles, then the BTU will not startup automatically.  It would require a human to login and kickstart it.

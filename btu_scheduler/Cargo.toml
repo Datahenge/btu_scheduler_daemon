@@ -12,18 +12,25 @@ license = "MIT OR Apache-2.0"
 
 # NOTE: This version below will be picked up by "btu_daemon --version"
 version = "0.2.3"
-edition = "2018"
+edition = "2021"
+
+[features]
+email = [ "lettre", "lettre_email" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 cron = "0.9.0"
 chrono = "0.4"
 chrono-tz = "0.6.0"
+lettre = { version = "0.9.6", optional = true}
+lettre_email = { version = "0.9.4", optional = true}
 mysql = "21.0.2"
 redis = "0.21.4"
 serde = { version = "1.0.130", features = ["derive"] }
 syn = "1.0.83"
 thiserror = "1.0.30"
 toml = "0.5"
+tracing = "0.1.34"
 ureq = { version = "2.3.1", features = ["json"] }
 uuid = { version = "0.8.2", features = ["serde", "v4"] }
+

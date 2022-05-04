@@ -11,8 +11,10 @@ use std::path::{Path};
 use chrono_tz::Tz;
 use mysql::{Opts, Pool};
 use serde::{Deserialize, Serialize};
+use tracing::Level;
 
 use crate::config::error::ConfigError;
+use crate::logging::LevelWrapper;
 
 static CONFIG_FILE_PATH: &'static str = "/etc/btu_scheduler/btu_scheduler.toml";
 
@@ -38,6 +40,7 @@ mod error {
 pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
 	pub time_zone_string: String,
+	pub email_on_level: LevelWrapper,  // Would rather use tracing::Level, but I don't know how to Serialize and Deserialize it. :/
 	mysql_user: String,
 	mysql_password: String,
 	mysql_host: String,
@@ -101,6 +104,7 @@ impl AppConfig {
 		let default_config = AppConfig {
 			full_refresh_internal_secs: 180,
 			time_zone_string: "UTC".to_string(),
+			email_on_level: LevelWrapper::new(Level::DEBUG),
 			mysql_user: "root".to_string(),
 			mysql_password: "foo".to_string(),
 			mysql_host: "127.0.0.1".to_string(),

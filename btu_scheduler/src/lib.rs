@@ -9,7 +9,12 @@ use serde::Deserialize;
 
 pub mod btu_cron;
 pub mod config;
+pub mod logging;
 pub mod rq;
+
+#[cfg(feature = "email")]
+pub mod email;
+
 mod tests;
 use crate::config::AppConfig;
 
@@ -795,4 +800,22 @@ pub fn validate_sql_credentials(app_config: &config::AppConfig) -> Result<(), st
 	}
 
 	Ok(())
+}
+
+#[allow(dead_code)]
+fn sorted_vector_of_kv(kv_pairs: &Vec<(String, String)>) -> Vec<(String, String)> {
+
+    let mut my_vector : Vec<(String, String)> = Vec::new();
+
+    // Loop through an iterator of all the Environment Variables (includes any .env files)
+    for (key, value) in kv_pairs {
+        my_vector.push(
+			(key.to_owned(), value.to_owned())
+		);
+    }
+    // Sort by the first item in the tuple pair.
+    my_vector.sort_by(|foo, bar| foo.0.partial_cmp(&bar.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Return the sorted vector of values.
+    my_vector
 }

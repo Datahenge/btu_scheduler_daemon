@@ -27,3 +27,4 @@ tracing-subscriber = "0.3.11"
 [dependencies.btu_scheduler]
 version = "~0.2.0"
 path = "../btu_scheduler"
+features = ["email"]
