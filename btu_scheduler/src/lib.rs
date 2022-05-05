@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 // Main library 'btu_scheduler'
 // These modules are located in adjacent files.
 use mysql::PooledConn;
 use mysql::prelude::Queryable;
 use serde::Deserialize;
+use tracing::{trace, debug, info, warn, error, span, Level};
 
 pub mod btu_cron;
 pub mod config;
@@ -347,6 +349,7 @@ pub mod scheduler {
 	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
 	use redis::{self, Commands, RedisError};
+	use tracing::{trace, debug, info, warn, error, span, Level};
 	use crate::{btu_cron, config, rq};
 	use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
 
@@ -530,7 +533,7 @@ pub mod scheduler {
 			   Of course, if the Frappe web server is offline, there's a good chance the BTU Task Schedule might fail anyway.
 			   So I think the benefits of waiting to create RQ Jobs outweights the drawbacks.
 		*/
-		println!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
+		info!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
 		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::tz_cron_to_utc_datetimes(&task_schedule.cron_string,
 			                                                                       task_schedule.cron_timezone,
 																				   None,

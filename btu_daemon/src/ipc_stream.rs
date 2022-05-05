@@ -10,6 +10,7 @@ use std::{collections::VecDeque, io::{Read, Write},
 
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
+use tracing::{trace, debug, info, warn, error, span, Level};
 use crate::config;
 use crate::scheduler::rq_cancel_scheduled_task;
 
@@ -31,7 +32,7 @@ pub fn create_socket_listener(socket_file_path: &str) -> UnixListener {
             .expect(&format!("ERROR: On deamon startup, could not remove preexisting socket file '{}'", file_as_path));
     }
     let listener = UnixListener::bind(&file_as_path).unwrap();
-    println!("\u{2713} Listening for inbound traffic on Unix Domain Socket '{}'", file_as_path);
+    info!("Listening for inbound traffic on Unix Domain Socket '{}'", file_as_path);
     return listener;
 }
 
@@ -130,10 +131,10 @@ pub fn handle_client_request(mut stream: UnixStream,
     let client_message = client_message.unwrap();  // overshadow the original variable with the unwrapped contents.
     match client_message.request_type.as_str() {
         "ping" => {
-            println!("Frappe Web Server sent a 'ping' request ...");
+            info!("Frappe Web Server sent a 'ping' request ...");
             let mut stream_out = stream.try_clone()?;
             stream_out.write_all("pong".as_bytes()).expect("Failed to 'write_all'");
-            println!("...replied back with 'pong'");
+            info!("...replied back with 'pong'");
             return Ok("Replied to client's 'ping' with a 'pong'".to_owned())
         },
         "create_task_schedule" => {
@@ -143,7 +144,7 @@ pub fn handle_client_request(mut stream: UnixStream,
                 return Err(new_error);
             }
             let task_schedule_id = client_message.request_content.unwrap();
-            println!("Frappe Web Server requesting Task Schedule '{}' be processed for Python RQ.  Adding this to the Scheduler's internal queue.", task_schedule_id);
+            info!("Frappe Web Server requesting Task Schedule '{}' be processed for Python RQ.  Adding this to the Scheduler's internal queue.", task_schedule_id);
 
             // Wait until last possible moment to obtain lock on internal queue.  Drop immediately when done.
             if let Ok(mut unlocked_queue) = queue.lock() {
@@ -166,14 +167,14 @@ pub fn handle_client_request(mut stream: UnixStream,
                 return Err(new_error);
             }
             let task_schedule_id = client_message.request_content.unwrap();
-            println!("Frappe Web Server requesting Task Schedule '{}' be cancelled in Python RQ.", task_schedule_id);
+            info!("Frappe Web Server requesting Task Schedule '{}' be cancelled in Python RQ.", task_schedule_id);
 
             let mut stream_out = stream.try_clone()?;
             // Try to cancel, and reply back to the UDS Client:
             match rq_cancel_scheduled_task(app_config, &task_schedule_id) {
                 Ok(_) => {
                     let okay_message: String = format!("Successfully cancelled BTU Task Schedule {} in Python RQ.",task_schedule_id);
-                    println!("{}", okay_message);
+                    info!("{}", okay_message);
                     stream_out.write_all(okay_message.as_bytes()).expect("Failed to 'write_all'");
                     return Ok(okay_message)
                 },
@@ -192,7 +193,7 @@ pub fn handle_client_request(mut stream: UnixStream,
             // 1. Return an message over the UDS to the client:
             stream_out.write_all(error_string.as_bytes()).expect("Failed to 'write_all'"); // Return this error to the caller
             // 2. Print the same error message to stdout
-            println!("{}", error_string);
+            error!("{}", error_string);
             // 3. Return the error upward
             let new_error = std::io::Error::new(std::io::ErrorKind::Other, error_string);
             return Err(new_error);

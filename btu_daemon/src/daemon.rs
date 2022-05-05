@@ -8,8 +8,8 @@ use chrono::prelude::*;
 use mysql::Result as mysqlResult;
 use mysql::prelude::Queryable;
 use once_cell::sync::Lazy;
-use tracing::{debug, error, info, span, warn, Level};
-use tracing_subscriber::{FmtSubscriber, Registry, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
+use tracing::{trace, debug, info, warn, error, span, Level};
+use tracing_subscriber::{FmtSubscriber, Registry, filter, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 
 pub mod common;
 pub mod ipc_stream;
@@ -61,12 +61,6 @@ fn queue_full_refill(queue: &mut VecDeque<String>) ->  mysqlResult<u32> {
     Ok(rows_added)
 }
 
-/**
- Return the current, local time as String. 
-*/
-fn get_datetime_now_string() -> String {
-    Local::now().format("%v %r").to_string()
-}
 
 /**
  The global configuration for this application.\
@@ -77,14 +71,14 @@ static APP_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
     match AppConfig::new_from_toml_file() {
         Ok(app_config) => {
             if app_config.tz().is_err() {
-                error!("Cannot parse time zone string in TOML configuration file: '{}'", app_config.time_zone_string);
-                error!("See this article for a list of valid names:\n{}", "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones");
+                error!("Cannot parse time zone string in TOML configuration file: '{}' 
+                See this article for a list of valid names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones", app_config.time_zone_string);
                 std::process::exit(1);
             }
             Mutex::new(app_config)
         }
         Err(error) => {
-            error!("Error while creating AppConfig from TOML configuration file.\n{}", error);
+            error!("Error while creating AppConfig from TOML configuration file. {}", error);
             std::process::exit(1);
         }
     }
@@ -100,9 +94,14 @@ fn main() {
         std::process::exit(0);  // exit with success code
     }
 
-    tracing_subscriber::registry().with(CustomLayer).init();
+    // Set up how `tracing-subscriber` will deal with tracing data.  Builder Pattern.
+    tracing_subscriber::registry()
+        .with(CustomLayer)
+        .with(filter::LevelFilter::INFO)
+        .init();
 
-    let checkmark_emoji = '\u{2713}';
+    // let checkmark_emoji = '\u{2713}';
+
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // We need 3 additional threads, besides the main thread.
     // Create a new VecDeque, and -move- into an ArcMutex.  This allows the queue to be passed between threads.
     let internal_queue = Arc::new(Mutex::new(VecDeque::<String>::new()));  // using a 'turbofish' to specify the type of the VecDeque (String in this case)
@@ -125,7 +124,7 @@ fn main() {
     */
     if rq::get_redis_connection(&temp_app_config).is_none() {
         error!("Cannot initialize daemon without Redis RQ connection; closing now.");
-        std::process::exit(1);    
+        std::process::exit(1);
     }
 
     // Another sanity check; try to connect to SQL before going any further.
@@ -171,10 +170,10 @@ fn main() {
                                     // We now have an owned struct BtuTaskSchedule.
                                     let _foo = scheduler::add_task_schedule_to_rq(&*unlocked_app_config, &btu_task_schedule);
                                 } else {
-                                    println!("Error: Unable to find SQL record for BTU Task Schedule = '{}'\n(verify BTU Configuration has a Time Zone)", next_task_schedule_id);
+                                    error!("Error: Unable to find SQL record for BTU Task Schedule = '{}'\n(verify BTU Configuration has a Time Zone)", next_task_schedule_id);
                                 }                              
                             }
-                            println!("{} values remain in internal queue.", (*unlocked_queue).len());
+                            debug!("{} values remain in internal queue.", (*unlocked_queue).len());
                         },
                         None => {
                         }
@@ -214,26 +213,24 @@ fn main() {
                 if let Ok(mut unlocked_queue) = queue_counter_2.lock() {
                     // println!("Thread 2 unlocked.");
                     // Achieved a lock.
-                    println!("--------\n{} seconds have elapsed.  It's time for a full-refresh of the Task Schedules in Redis!", elapsed_seconds);                    
-                    println!("  * Before refill, the queue contains {} values.", (*unlocked_queue).len());
+                    debug!("--------\n{} seconds have elapsed.  It's time for a full-refresh of the Task Schedules in Redis!", elapsed_seconds);                    
+                    debug!("  * Before refill, the queue contains {} values.", (*unlocked_queue).len());
                     match queue_full_refill(&mut *unlocked_queue) {
                         Ok(rows_added) => {
-                            println!("  * Added {} values to the internal FIFO queue.", rows_added);
-                            println!("  * Internal queue contains a total of {} values.", (*unlocked_queue).len());
+                            debug!("  * Added {} values to the internal FIFO queue.", rows_added);
+                            debug!("  * Internal queue contains a total of {} values.", (*unlocked_queue).len());
                             stopwatch = Instant::now()  // reset the stopwatch, and begin new countdown.
                         },
-                        Err(e) => println!("Error while repopulating the internal queue! {:?}", e)
+                        Err(e) => error!("Error while repopulating the internal queue! {:?}", e)
                     }                       
-                    println!("--------")
                 }
             }
             thread::sleep(Duration::from_millis(750));  // Yield control to another thread for a while.
         } // end of loop
     });
     if thread_handle_2.is_err() {
-        println!("Cannot spawn new thread '2_Auto_Refill'.  Error information below.  Ending program.");
-        println!("{:?}", thread_handle_2.err());
-        std::process::exit(1);    
+        error!("Cannot spawn new thread '2_Auto_Refill'.  Error information below.  Ending program. {:?}", thread_handle_2.err());
+        std::process::exit(1);
     }
     handles.push(thread_handle_2.unwrap());
 
@@ -249,7 +246,7 @@ fn main() {
     let queue_counter_3 = Arc::clone(&internal_queue);
     let thread_handle_3 = thread::Builder::new().name("3_Scheduler".to_string()).spawn(move || {  // this 'move' is required to own variable 'scheduler_polling_interval'
         thread::sleep(Duration::from_secs(10)); // One-time delay of execution: this gives the other Threads a chance to initialize.
-        println!("--> Thread '3_Scheduler' launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
+        trace!("--> Thread '3_Scheduler' launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
         loop {
             // This thread requires a lock on the Internal Queue, so that after a Task runs, it can be rescheduled.
             let stopwatch: Instant = Instant::now();
@@ -267,8 +264,7 @@ fn main() {
         }
     });
     if thread_handle_3.is_err() {
-        println!("Cannot spawn new thread '3_Scheduler'.  Error information below.  Ending program.");
-        println!("{:?}", thread_handle_3.err());
+        error!("Cannot spawn new thread '3_Scheduler'.  Error information below.  Ending program. {:?}", thread_handle_3.err());
         std::process::exit(1);    
     }
     handles.push(thread_handle_3.unwrap());
@@ -286,7 +282,7 @@ fn main() {
     println!("2. Performs a full-refresh of BTU Task Schedules every {} seconds.", full_refresh_internal_secs);    
     println!("3. Listens on Unix Domain Socket for requests from the Frappe BTU web application.\n");
 
-    println!("{} Main Thread started at {}", checkmark_emoji, get_datetime_now_string());
+    info!("Main Thread started");
 
     // Immediately on startup, Scheduler daemon should populate its internal queue with all BTU Task Schedule identifiers.
     let queue_counter_temp = Arc::clone(&internal_queue);
@@ -294,7 +290,7 @@ fn main() {
         // Note: using an explicit scope here, to ensure the lock is dropped immediately afterwards, so new threads can take it.
         let mut unlocked_queue = queue_counter_temp.lock().unwrap();
         let rows_added = queue_full_refill(&mut unlocked_queue).unwrap();
-        println!("{} Filled internal queue with {} Task Schedule identifiers.", checkmark_emoji, rows_added);
+        info!("Filled internal queue with {} Task Schedule identifiers.", rows_added);
         drop(unlocked_queue);
     }
 
@@ -306,11 +302,11 @@ fn main() {
         let unlocked_app_config: &AppConfig = &APP_CONFIG.lock().unwrap();
         match ipc_stream::update_socket_file_permissions(&unlocked_app_config.socket_path, &unlocked_app_config.socket_file_group_owner) {
             Ok(_) => {
-                println!("{} Successfully updated Unix Domain Socket file's permissions.", checkmark_emoji);
+                trace!("Successfully updated Unix Domain Socket file's permissions.");
             },
             Err(error) => {
-                println!("\nERROR: Failed to modify Unix Domain Socket file's permissions:\n    {}", error);
-                println!("Frappe Web App would be unable to send commands to the BTU Scheduler.\nEnding daemon now.");
+                error!("\nERROR: Failed to modify Unix Domain Socket file's permissions:\n    {}", error);
+                error!("Frappe Web App would be unable to send commands to the BTU Scheduler.\nEnding daemon now.");
                 std::process::exit(1);
             }
         }
@@ -326,16 +322,16 @@ fn main() {
                                                                            queue_counter_main,
                                                                            &APP_CONFIG.lock().unwrap());
                     if let Err(error_message) = request_result {
-                        println!("Error while handling Unix client stream: {}", error_message);
+                        error!("Error while handling Unix client stream: {}", error_message);
                     }
                     thread::sleep(Duration::from_millis(1250));  // Yield control to another thread.
                 });
                 if handler_result.is_err() {
-                    println!("Error in thread 'Unix_Socket_Handler': {:?}", handler_result.err());
+                    error!("Error in thread 'Unix_Socket_Handler': {:?}", handler_result.err());
                 }
             }
             Err(err) => {
-                println!("Error while attempting to unwrap UnixListener stream: {}.  Will keep listening for more traffic.", err);
+                error!("Error while attempting to unwrap UnixListener stream: {}.  Will keep listening for more traffic.", err);
             }
         }
     };
