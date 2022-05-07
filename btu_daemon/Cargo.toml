@@ -13,6 +13,7 @@ name = "btu-daemon"
 path = "src/daemon.rs"
 
 [dependencies]
+anyhow = "1.0.57"
 camino = "1.0.5"
 chrono = "0.4"
 mysql = "21.0.2"

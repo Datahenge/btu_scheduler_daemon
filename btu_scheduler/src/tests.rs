@@ -11,8 +11,12 @@ mod tests {
 	use chrono::{DateTime, NaiveDateTime, Utc};
 	use crate::btu_cron::cron_str_to_cron_str7;
 	use crate::btu_cron::{tz_cron_to_utc_datetimes};
+	use crate::config::AppConfig;
 	use crate::scheduler::RQScheduledTask;
 
+	use tracing::info;
+	use tracing::field;
+	
     #[test]
     fn test_cron7_fail() {
 		// Format for cron7:	<seconds> <minutes> <hours> <day-of-month> <month> <day-of-week> <year>
@@ -22,13 +26,12 @@ mod tests {
 		// Dev Note: Accomplishing the below required implementing trait 'PartialEq' for the enum CronError.
 		let failed_test = cron_str_to_cron_str7(expression_four);
         assert!(failed_test.is_err());
-		assert_eq!(failed_test.err().unwrap(), crate::error::CronError::WrongQtyOfElements { found: 4 });
+		assert_eq!(failed_test.err().unwrap(), crate::errors::CronError::WrongQtyOfElements { found: 4 });
 
 		let failed_test = cron_str_to_cron_str7(expression_eight);
         assert!(failed_test.is_err());
-		assert_eq!(failed_test.err().unwrap(), crate::error::CronError::WrongQtyOfElements { found: 8 });
+		assert_eq!(failed_test.err().unwrap(), crate::errors::CronError::WrongQtyOfElements { found: 8 });
     }
-
 
 	/**
 	 * This test is to ensure that I can convert a 5, 6, or 7 character cron string, to a 7-character cron string.
@@ -135,6 +138,20 @@ mod tests {
 		);
 		assert_eq!(expected, actual);
 	}
+
+    #[test]
+    fn test_email_info() {
+
+		let app_config: AppConfig = AppConfig::new_from_toml_file().unwrap();
+		let email_result = crate::email::send_email(&app_config,
+			                                        "BTU Unit Test",
+													"Called by Unit Test named 'test_rqscheduledtask_from_strings()'");
+		if email_result.is_err() {
+			println!("\n----> Error Response: {:?}\n", &email_result.as_ref().err().unwrap());
+		}
+		assert_eq!(email_result.is_ok(), true);
+	}
+
 
 	/* Feature below is Not-Yet-Implemented.
 

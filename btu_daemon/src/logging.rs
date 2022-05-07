@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 use chrono::{SecondsFormat, Utc};
+use tracing::Subscriber;
 use tracing_subscriber::Layer;
 
 
@@ -44,6 +45,8 @@ where
             "fields": fields,
         });
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
+
+        // TODO: Send an email on certain Levels (e.g. email when WARN or ERROR)
     }
 }
 

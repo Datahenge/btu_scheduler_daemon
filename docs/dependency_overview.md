@@ -2,6 +2,12 @@
 
 The following provides a brief explanation of the third-party crates I used from https://crates.io
 
+#### anyhow
+https://docs.rs/anyhow
+
+A lovely crate that simplifies Error Handling in Rust.  Especially useful for higher-level applications, where strict Error typing isn't a requirement.
+
+
 #### chrono
 https://docs.rs/chrono
 

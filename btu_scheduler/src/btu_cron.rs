@@ -1,10 +1,12 @@
 
-use cron::Schedule;
-use chrono::{DateTime, TimeZone, Utc}; // See also: Local, TimeZone
-use chrono_tz::Tz;
 use std::str::FromStr;
-use chrono::NaiveDateTime;
-use crate::error::CronError;
+
+use cron::Schedule;
+use chrono::{DateTime, TimeZone, Utc, NaiveDateTime}; // See also: Local, TimeZone
+use chrono_tz::Tz;
+use tracing::{trace, debug, info, warn, error, span, Level};
+
+use crate::errors::CronError;
 
 #[derive(Debug)]
 struct CronStruct {
@@ -174,7 +176,7 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 
 		//use chrono::Datelike;
 		//if new_utc_datetime.date().day() != utc_datetime.date().day() {
-		//	println!("Original and new 'utc_datetime' fall on different days ({} vs {})", utc_datetime, new_utc_datetime);
+		// info!("Original and new 'utc_datetime' fall on different days ({} vs {})", utc_datetime, new_utc_datetime);
 		//}
 
 		result.push(new_utc_datetime);
@@ -208,13 +210,13 @@ pub fn future_foo(cron_expression_string: &str, _cron_timezone: Tz, _number_of_r
 					// return schedule.upcoming(Utc).take(10).next();
 				},
 				Err(error) => {
-					println!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_string, error);
+					error!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_string, error);
 					// return None;
 				}
 			}
 		},
 		Err(error) => {
-			println!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_expression_string, error);
+			error!("ERROR: Cannot parse invalid cron string: '{}'.  Error: {}", cron_expression_string, error);
 			// return None;
 		}
 	}
@@ -237,7 +239,7 @@ pub fn cron_tz_to_cron_utc(cron_expression: &str, timezone: Tz) -> Result<Vec<St
 		Inspired and derived from: https://github.com/Sonic0/local-crontab ...
 		... which itself was derived from https://github.com/capitalone/local-crontab created by United Income at Capital One.
 	*/
-	println!("Ok, will try to convert cron '{}' with time zone '{}' to a vector of UTC cron expressions.", cron_expression, timezone);
+	info!("Ok, will try to convert cron '{}' with time zone '{}' to a vector of UTC cron expressions.", cron_expression, timezone);
 
 	let cron_struct: CronStruct = cron_expression.parse()?;
 

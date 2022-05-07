@@ -7,10 +7,10 @@
 use mysql::PooledConn;
 use mysql::prelude::Queryable;
 use serde::Deserialize;
-use tracing::{trace, debug, info, warn, error, span, Level};
 
 pub mod btu_cron;
 pub mod config;
+pub mod errors;
 pub mod logging;
 pub mod rq;
 
@@ -32,55 +32,16 @@ pub fn get_package_version() -> &'static str {
     VERSION
 }
 
-pub mod error {
-	use toml::de::Error		as TomlError;
-	use thiserror::Error	as ThisError;
-
-	#[derive(ThisError, Debug)]
-	pub enum ConfigError {
-		#[error("Could not deserialize TOML into a Rust object.\n    {source:?}")]
-		ConfigLoad {
-			#[from] 
-			source: TomlError,
-		},
-		#[error("Cannot find the TOML configuration file on disk.")]
-		MissingConfigFile,
-	}
-	
-	#[derive(ThisError, Debug, PartialEq)]
-	pub enum CronError {
-		#[error("Cron expression has the wrong number of elements (should be one of 5, 6, or 7).")]
-		WrongQtyOfElements {
-			found: usize
-		},
-		#[error("Invalid cron expression; could not transform into a CronStruct.")]
-		InvalidExpression
-	}
-
-	#[derive(ThisError, Debug, PartialEq)]
-	pub enum StringError {
-		#[error("Element cannot be split using delimiter.")]
-		MissingDelimiter,
-	}
-
-	#[derive(ThisError, Debug, PartialEq)]
-	pub enum RQError {
-		#[error("No idea what happened here.")]
-		Unknown {
-			#[from]
-			source: redis::RedisError,
-		}
-	}
-}  // end of error module.
 
 pub mod task {
 	
 	use std::fmt;
 	use mysql::prelude::Queryable;
 	use mysql::PooledConn;
+	use tracing::{trace, debug, info, warn, error, span, Level};
 	use crate::config::{self, AppConfig};
 	use crate::rq::RQJob;
-
+	
 	pub struct BtuTask {
 		pub task_key: String,
 		desc_short: String,
@@ -103,7 +64,7 @@ pub mod task {
 			// OPTION 1: Working 1 row at a time.
 			/*
 			let row: mysql::Row = sql_conn.query_first(&query_syntax).unwrap().unwrap();
-			println!("mysql Row named foo = {:?}", row);
+			info!("mysql Row named foo = {:?}", row);
 
 			let mut task: BtuTask = BtuTask::default();
 			task.task_key = row.get(0).unwrap();
@@ -138,7 +99,7 @@ pub mod task {
 						max_task_duration: row.get_opt(5).unwrap_or(Ok(600)).unwrap_or(600),
 					}
 				}).unwrap();
-			println!("{}", task);
+			info!("{}", task);
 			task
 		}
 
@@ -185,7 +146,7 @@ pub mod task {
 				sql_conn = _conn;
 			},
 			Err(err) => {
-				println!("Error while attempting to get connection in 'query_task_summary' : {}", err);
+				error!("Error while attempting to get connection in 'query_task_summary' : {}", err);
 				return ()
 			}
 		}
@@ -197,11 +158,11 @@ pub mod task {
 
 		if task_vector.len() > 0 {
 			for task in task_vector {
-				println!("Task {} : {}", task.0, task.1);
+				info!("Task {} : {}", task.0, task.1);
 			}
 		}
 		else {
-			println!("No BTU Tasks are defined in the MariaDB database.");
+			warn!("No BTU Tasks are defined in the MariaDB database.");
 		}
 	}
 }  // end of task module.
@@ -212,6 +173,7 @@ pub mod task_schedule {
 	use chrono_tz::Tz;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
+	use tracing::{trace, debug, info, warn, error, span, Level};
 	use crate::config::{self, AppConfig};
 	use crate::rq::RQJob;
 	use crate::task::BtuTask;
@@ -326,7 +288,7 @@ pub mod task_schedule {
 				task_schedules = result;
 			}
 			Err(mysql_error) => {
-				println!("MySQL Error encountered in read_btu_task_schedule(): {:?}", mysql_error);
+				error!("MySQL Error encountered in read_btu_task_schedule(): {:?}", mysql_error);
 				return None;
 			}
 		}
@@ -336,7 +298,7 @@ pub mod task_schedule {
 			Some(btu_task_schedule.to_owned())
 		} else {
 			// No results returned from SQL query.
-			println!("Cannot find a record in 'tabBTU Task Schedule' with primary key '{}'", task_schedule_id);
+			error!("Cannot find a record in 'tabBTU Task Schedule' with primary key '{}'", task_schedule_id);
 			None
 		}       
 	}
@@ -350,7 +312,8 @@ pub mod scheduler {
 	use chrono::NaiveDateTime;
 	use redis::{self, Commands, RedisError};
 	use tracing::{trace, debug, info, warn, error, span, Level};
-	use crate::{btu_cron, config, rq};
+	use crate::email::BTUEmail;
+use crate::{btu_cron, config, rq};
 	use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
 
 	// static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
@@ -533,13 +496,12 @@ pub mod scheduler {
 			   Of course, if the Frappe web server is offline, there's a good chance the BTU Task Schedule might fail anyway.
 			   So I think the benefits of waiting to create RQ Jobs outweights the drawbacks.
 		*/
-		info!("Calculating next execution times for BTU Task Schedule {} : ", task_schedule.id);
 		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::tz_cron_to_utc_datetimes(&task_schedule.cron_string,
 			                                                                       task_schedule.cron_timezone,
 																				   None,
 																				   1).unwrap();
 		if next_runtimes.len() == 0 {
-			println!("ERROR: Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
+			error!("Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
 			return ()
 		}
 
@@ -549,13 +511,6 @@ pub mod scheduler {
 						  because of time zone shifts around Daylight Savings.
 		*/
 
-		// If application configuration has a good Time Zone string, print Next Execution Time in local time...
-		if let Ok(timezone) = app_config.tz() {
-			println!("* Next Execution Time: {}", next_runtimes[0].with_timezone(&timezone).to_rfc2822());	
-		}
-		// Always print in UTC.
-		println!("* Next Execution Time: {} UTC", next_runtimes[0].to_rfc3339());
-
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
 
 		// The Redis 'zadd()' operation returns an integer.
@@ -564,12 +519,25 @@ pub mod scheduler {
 
 		match some_result {
 			Ok(_result) => {
+				trace!("Result from 'zadd' is Ok, with the following payload: {}", _result);
 				// Developer Note: I believe a result of 1 means Redis wrote a new record.
 				//                 A result of 0 means the record already existed, and no write was necessary.
-				// println!("Result from 'zadd' is Ok, with the following payload: {}", result);
+				let message1: &str = &format!("Task Schedule ID {} is being monitored for future execution.", task_schedule.id);
+				// If application configuration has a good Time Zone string, print Next Execution Time in local time...
+				if let Ok(timezone) = app_config.tz() {
+					let message2: &str = &format!("Next Execution Time ({}) for Task Schedule {} = {}", 
+												timezone, task_schedule.id, next_runtimes[0].with_timezone(&timezone).to_rfc2822());	
+					let message3: &str =  &format!("Next Execution Time (UTC) for Task Schedule {} = {}", task_schedule.id, next_runtimes[0].to_rfc3339());
+					info!(message1, message2, message3);
+				}
+				else {
+					// Otherwise, just print in UTC.	
+					let message3: &str =  &format!("Next Execution Time (UTC) for Task Schedule {} = {}", task_schedule.id, next_runtimes[0].to_rfc3339());
+					info!(message1, message3);
+				}
 			},
 			Err(error) => {
-				println!("Result from 'zadd' is Err, with the following payload: {}", error);
+				error!("Result from redis 'zadd' is Err, with the following payload: {}", error);
 			}
 		}
 		/*
@@ -589,10 +557,9 @@ pub mod scheduler {
 		// By fetching ALL the values below a certain threshhold (Timestamp), the program knows precisely which Jobs
 		// to enqueue...
 
-		println!("Upcoming Task Schedules:");
-		rq_print_scheduled_tasks(&app_config);
+		// rq_print_scheduled_tasks(&app_config);
 
-		println!("Reviewing the 'Next Execution Times' for each Task Schedule in Redis...");
+		debug!("Reviewing the 'Next Execution Times' for each Task Schedule in Redis...");
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with Python RQ database server.");
 		
 		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
@@ -601,7 +568,7 @@ pub mod scheduler {
 		if redis_result.is_ok() {
 			let jobs_to_enqueue = redis_result.unwrap();
 			if jobs_to_enqueue.len() > 0 {
-				println!("Found {:?} Task Schedules that qualify for immediate execution.", jobs_to_enqueue);
+				info!("Found {:?} Task Schedules that qualify for immediate execution.", jobs_to_enqueue.len());
 			}
 			jobs_to_enqueue  // return a Vector of Task Schedule identifiers
 		}
@@ -620,12 +587,22 @@ pub mod scheduler {
 		let unix_timestamp_now = Utc::now().timestamp();
         let task_schedule_keys = fetch_task_schedules_ready_for_rq(app_config, unix_timestamp_now);
 		for task_schedule_key in task_schedule_keys.iter() {
-			println!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", task_schedule_key);
+			info!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", task_schedule_key);
 			match run_immediate_scheduled_task(app_config, &task_schedule_key, internal_queue) {
 				Ok(_) => {
+					if app_config.email_when_queuing {
+						// Send some emails
+						info!("Attempting to send an email about this Task...");
+						let email_result = crate::email::send_email(&app_config, "Queuing a Task", task_schedule_key);  // don't lose ownership of the original
+						debug!("SMTP Response: {:?}", email_result);
+						if email_result.is_err() {
+							error!("Error while attempting to send an email: {:?}", email_result.err().unwrap());
+						}
+					}
+					
 				},
 				Err(err) => {
-					println!("Error while attempting to run Task Schedule {} : {}", task_schedule_key, err);
+					error!("Error while attempting to run Task Schedule {} : {}", task_schedule_key, err);
 				}
 			}
 		}
@@ -651,7 +628,7 @@ pub mod scheduler {
 
 		// 3. Create an RQ Job from the BtuTask struct.
 		let rq_job: rq::RQJob = task_schedule.to_rq_job(app_config);
-		println!("Created an RQJob struct: {}", rq_job);
+		debug!("Created an RQJob struct: {}", rq_job);
 
 		// 4. Save the new Job into Redis.
 		rq_job.save_to_redis(app_config);
@@ -659,10 +636,10 @@ pub mod scheduler {
 		// 5. Enqueue that job for immediate execution.
 		match rq::enqueue_job_immediate(&app_config, &rq_job.job_key_short) {
 			Ok(ok_message) => {
-				println!("Successfully enqueued: {}", ok_message);
+				info!("Successfully enqueued: {}", ok_message);
 			}
 			Err(err_message) => {
-				println!("Error while attempting to queue job for execution: {}", err_message);
+				error!("Error while attempting to queue job for execution: {}", err_message);
 			}
 		}
 		/* 6. Recalculate the next Run Time.
@@ -704,7 +681,8 @@ pub mod scheduler {
 
 		for result in tasks.sort_by_id().iter() {
 			let next_datetime_local = result.next_datetime_utc.with_timezone(&local_time_zone);
-			println!("{} at {}", result.task_schedule_id, next_datetime_local);
+			let message: &str = &format!("Task Schedule {schedule} is scheduled to occur later at {time}", schedule=result.task_schedule_id, time=next_datetime_local);
+			info!(message);
 		};
 	}
 
@@ -721,8 +699,6 @@ pub mod scheduler {
 		)
 	*/
 }
-
-
 
 /// Call ERPNext REST API and acquire pickled Python function as bytes.
 fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, app_config: &AppConfig) -> Result<Vec<u8>, String> {
@@ -757,7 +733,6 @@ fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, 
 
 	// Store the response in a FrappeApiMessage struct.
 	let response_json: FrappeApiMessage = web_server_resp.into_json().unwrap();
-	// println!("Response as JSON: {:?}", response_json.message);
 	let bytes: Vec<u8> = response_json.message;
 	return Ok(bytes);
 }

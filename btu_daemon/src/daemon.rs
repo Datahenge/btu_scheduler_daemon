@@ -1,27 +1,34 @@
 #![forbid(unsafe_code)]
 #![allow(unused_imports)]
 
-use std::{collections::{VecDeque}, env, fmt::Debug, os::unix::net::UnixListener, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
+use std::{collections::VecDeque,
+          env,
+          fmt::Debug,
+          os::unix::net::UnixListener,
+          sync::{Arc, Mutex ,MutexGuard},
+          thread,
+          time::{Duration, Instant}};
 
 // Crates.io
 use chrono::prelude::*;
 use mysql::Result as mysqlResult;
 use mysql::prelude::Queryable;
 use once_cell::sync::Lazy;
+
+// Tracing modules
 use tracing::{trace, debug, info, warn, error, span, Level};
+use tracing::dispatcher::Dispatch;
 use tracing_subscriber::{FmtSubscriber, Registry, filter, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 
+// This Crate
 pub mod common;
 pub mod ipc_stream;
 pub mod logging;
-
-// This Crate
 use btu_scheduler::{config, rq, scheduler, task_schedule};
 use btu_scheduler::config::AppConfig;
 use logging::CustomLayer;
 
-// GitHub Issue where Brian and Adam discuss Rust thread locking:
-// https://github.com/aeshirey/aeshirey.github.io/issues/5
+// GitHub Issue where Brian and Adam discuss Rust thread locking: https://github.com/aeshirey/aeshirey.github.io/issues/5
 
 /**
  Queries the Frappe database, adding every Task Schedule ID to the Scheduler's internal queue.\
@@ -61,7 +68,6 @@ fn queue_full_refill(queue: &mut VecDeque<String>) ->  mysqlResult<u32> {
     Ok(rows_added)
 }
 
-
 /**
  The global configuration for this application.\
  Developer Note:  We need to create a Lazy Static, using a custom struct 'AppConfig', populated from a TOML file.\
@@ -84,9 +90,47 @@ static APP_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
     }
 });
 
+
+fn test_configuration_file() {
+      /*
+        Challenge: We need to load the TOML configuration from disk.
+        * There could be errors (missing keys)
+        * The errors are captured by tracing.
+        * The TOML configuration specifies what tracing Levels are filtered.
+
+        Catch 22 : We cannot validate the contents without tracing, which cannot be initialized without the contents.
+
+        Solution:
+        1. Inside a scope, initialize Tracing in INFO mode.
+        2. Read the TOML configuration file.
+        3. If there are errors, they will be output.  And the program will close (error code 1)
+        4. Otherwise, exit the scope.  And reload it for real.
+
+        TODO: Would be great to do this in 1 single pass, but I haven't learned if/how that's possible.
+    */
+    
+    /*
+        Subscribers do nothing, unless they are the default.  There are 2 ways of doing this:
+        1.  Globally via `set_global_default`
+        2.  Within a scope, using `with_default`
+
+        The dispatcher is the component of the tracing system which is responsible for forwarding trace data
+        from the instrumentation points that generate it to the Subscriber that collects it.
+    */
+    use tracing::dispatcher::Dispatch;
+    let my_subscriber = Registry::default().with(CustomLayer);
+    let my_dispatch = Dispatch::new(my_subscriber);
+    tracing::dispatcher::with_default(&my_dispatch, || {
+
+        let _ = APP_CONFIG.lock().unwrap();  // Lock APP_CONFIG for a moment, to populate some immutable variables.
+
+    });
+}
+
+
 fn main() {
 
-    // when daemon called with argument '--version', display some information then exit.
+    // when the daemon is called with argument '--version', display some information, then exit.
     let args: Vec<String> = env::args().collect();
     if (args.len() == 2) && (&args[1] == "--version") {
         println!("Version: {}", btu_scheduler::get_package_version());
@@ -94,26 +138,28 @@ fn main() {
         std::process::exit(0);  // exit with success code
     }
 
-    // Set up how `tracing-subscriber` will deal with tracing data.  Builder Pattern.
+    test_configuration_file();  // ensure the TOML configuration file meets the struct's requirements.
+    let temp_app_config: MutexGuard<AppConfig> =  APP_CONFIG.lock().unwrap();  // lock the configuration for a while during initialization.
+
+    // Initialize tracing globally.  For the remainder of the program, avoid the use of println.
     tracing_subscriber::registry()
         .with(CustomLayer)
-        .with(filter::LevelFilter::INFO)
+        .with(temp_app_config.tracing_level.get_level())
         .init();
 
-    // let checkmark_emoji = '\u{2713}';
-
-    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // We need 3 additional threads, besides the main thread.
-    // Create a new VecDeque, and -move- into an ArcMutex.  This allows the queue to be passed between threads.
+    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // We require 3 additional threads, besides the main thread.
+    /*  Create a new VecDeque, and -move- into an ArcMutex.
+        This allows the queue to be passed between threads.
+    */
     let internal_queue = Arc::new(Mutex::new(VecDeque::<String>::new()));  // using a 'turbofish' to specify the type of the VecDeque (String in this case)
 
-    let temp_app_config = APP_CONFIG.lock().unwrap();  // Lock APP_CONFIG for a moment, to populate some immutable variables.
     /*
       The interval at which 'Next Execution Times' are examined, to potentially trigger RQ inserts.\
       I recommend a value of no-more-than 60 seconds.  Otherwise you risk missing a Cron Datetime.
     */ 
     let scheduler_polling_interval: u64 =  temp_app_config.scheduler_polling_interval;  
 
-    /* Below is the interval for performing a "full-refresh" of BTU Task Schedules from the MySQL database.
+    /* The interval for performing a "full-refresh" of BTU Task Schedules from the MySQL database.
        A good value might be 3600 seconds (60 minutes)
     */
     let full_refresh_internal_secs: u32 = temp_app_config.full_refresh_internal_secs;  
@@ -209,17 +255,22 @@ fn main() {
             let elapsed_seconds = stopwatch.elapsed().as_secs();  // calculate elapsed seconds since last Queue Repopulate
             // Check if enough time has passed...
             if elapsed_seconds > full_refresh_internal_secs.into() {  // Dev Note: The 'into()' handles conversion to u64
-                // println!("Thread 2: Attempting to acquire a lock on the internal queue...");
+                // trace!("Thread 2: Attempting to acquire a lock on the internal queue...");
                 if let Ok(mut unlocked_queue) = queue_counter_2.lock() {
-                    // println!("Thread 2 unlocked.");
+                    // trace!("Thread 2 unlocked.");
                     // Achieved a lock.
-                    debug!("--------\n{} seconds have elapsed.  It's time for a full-refresh of the Task Schedules in Redis!", elapsed_seconds);                    
+                    info!("{} seconds have elapsed.  It's time for a full-refresh of the Task Schedules in Redis!", elapsed_seconds);                    
                     debug!("  * Before refill, the queue contains {} values.", (*unlocked_queue).len());
                     match queue_full_refill(&mut *unlocked_queue) {
                         Ok(rows_added) => {
                             debug!("  * Added {} values to the internal FIFO queue.", rows_added);
                             debug!("  * Internal queue contains a total of {} values.", (*unlocked_queue).len());
-                            stopwatch = Instant::now()  // reset the stopwatch, and begin new countdown.
+                            stopwatch = Instant::now();  // reset the stopwatch, and begin new countdown.
+
+                            // Log the Task Schedule:
+                            if let Ok(unlocked_app_config) = APP_CONFIG.lock() {
+                                crate::scheduler::rq_print_scheduled_tasks(&unlocked_app_config);      
+                            }
                         },
                         Err(e) => error!("Error while repopulating the internal queue! {:?}", e)
                     }                       
@@ -336,3 +387,6 @@ fn main() {
         }
     };
 }
+
+
+// let checkmark_emoji = '\u{2713}';

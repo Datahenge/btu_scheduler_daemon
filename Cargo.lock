@@ -38,6 +38,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08f9b8508dccb7687a1d6c4ce66b2b0ecef467c94667de27d8d7fe1f8d2a9cdc"
+
+[[package]]
 name = "arrayvec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -190,6 +196,7 @@ dependencies = [
 name = "btu_daemon"
 version = "0.2.5"
 dependencies = [
+ "anyhow",
  "btu_scheduler",
  "camino",
  "chrono",
@@ -206,6 +213,7 @@ dependencies = [
 name = "btu_scheduler"
 version = "0.2.3"
 dependencies = [
+ "anyhow",
  "chrono",
  "chrono-tz",
  "cron",
@@ -218,6 +226,7 @@ dependencies = [
  "thiserror",
  "toml",
  "tracing",
+ "tracing-subscriber",
  "ureq",
  "uuid 0.8.2",
 ]

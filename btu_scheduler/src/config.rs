@@ -12,9 +12,11 @@ use chrono_tz::Tz;
 use mysql::{Opts, Pool};
 use serde::{Deserialize, Serialize};
 use tracing::Level;
+use tracing_subscriber::filter;
 
 use crate::config::error::ConfigError;
-use crate::logging::LevelWrapper;
+use crate::logging::{LevelWrapper, LevelFilterWrapper};
+use tracing::{trace, debug, info, warn, error, span};
 
 static CONFIG_FILE_PATH: &'static str = "/etc/btu_scheduler/btu_scheduler.toml";
 
@@ -40,8 +42,17 @@ mod error {
 pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
 	pub time_zone_string: String,
-	pub email_on_level: LevelWrapper,  // A wrapper around Level, because the tracing crate doesn't implement Serialize and Deserialize.
+	pub tracing_level: LevelFilterWrapper,
+	
+	pub email_address_from: Option<String>,
+	pub email_host_name: Option<String>,
+	pub email_host_port: Option<i16>,
+	pub email_account_name: Option<String>,
+	pub email_account_password: Option<String>,
+
 	pub email_addresses: Option<Vec<String>>,
+	pub email_on_level: Option<LevelWrapper>,  // A wrapper around Level, because the tracing crate doesn't implement Serialize and Deserialize.
+	pub email_when_queuing: bool,
 	mysql_user: String,
 	mysql_password: String,
 	mysql_host: String,
@@ -91,22 +102,26 @@ impl AppConfig {
 
 		let file_contents: String = fs::read_to_string(file_path)
 			.expect("Something went wrong while reading the TOML file.");
-		// println!("Here are the contents of the TOML configuration file: {}", file_contents);
 
-		let result = AppConfig::new_from_toml_string(&file_contents);
-		result
-		// println!("{}", config);  // uses the Display trait defined below.
+		AppConfig::new_from_toml_string(&file_contents)
 	}
 
 	pub fn print_default_config_exit() -> () {
-		println!("\nError: No configuration file was found at path: {}", CONFIG_FILE_PATH);
-		println!("You will need to create a configuration file manually.");
-		println!("Below is an example of the file's contents:\n");
+		error!("\nError: No configuration file was found at path: {}", CONFIG_FILE_PATH);
+		error!("You will need to create a configuration file manually.");
+		error!("Below is an example of the file's contents:\n");
 		let default_config = AppConfig {
 			full_refresh_internal_secs: 180,
 			time_zone_string: "UTC".to_string(),
-			email_on_level: LevelWrapper::new(Level::DEBUG),
+			tracing_level: LevelFilterWrapper::new(filter::LevelFilter::INFO),
+			email_address_from: None,
+			email_host_name: None,
+			email_host_port: None,
+			email_account_name: None,
+			email_account_password: None,
 			email_addresses: None,
+			email_on_level: Some(LevelWrapper::new(Level::DEBUG)),
+			email_when_queuing: false,
 			mysql_user: "root".to_string(),
 			mysql_password: "foo".to_string(),
 			mysql_host: "127.0.0.1".to_string(),
@@ -123,7 +138,7 @@ impl AppConfig {
             webserver_token: "token: abcd1234".to_string()
 		};
 		let toml_string = toml::to_string(&default_config).unwrap();
-		println!("{}", toml_string);
+		warn!("{}", toml_string);
 		std::process::exit(1);
 	}
 

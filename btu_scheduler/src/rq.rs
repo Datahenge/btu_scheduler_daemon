@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use redis::{Commands, RedisError};
 use uuid::Uuid;
+use tracing::{trace, debug, info, warn, error, span, Level};
 
 use crate::config::AppConfig;
 
@@ -173,8 +174,7 @@ pub fn enqueue_job_immediate(app_config: &AppConfig, job_id: &str) -> Result<Str
 	let push_result: Result<u32, RedisError> = redis_conn.rpush(&queue_key, job_id);
 	match push_result {
 		Ok(foo) => {
-			return Ok(format!("Enqueued job '{}' for immediate execution.
-			Length of list after 'rpush' operation: {}", job_id, foo))
+			return Ok(format!("Enqueued job '{}' for immediate execution. Length of list after 'rpush' operation: {}", job_id, foo))
 		}
 		Err(bar) => {
 			return Err(std::io::Error::new(std::io::ErrorKind::Other, bar));
@@ -194,13 +194,13 @@ pub fn exists_job_by_id(app_config: &AppConfig, job_id: &str) -> bool {
 	match result {
 		Ok(rq_hashmap) => {
 			if rq_hashmap.len() == 0 {
-				println!("Redis returned no results for Hashmap key {}", job_id);
+				warn!("Redis returned no results for Hashmap key {}", job_id);
 				return false
 			}
 			true
 		},
 		Err(e) => {
-			println!("{:?}", e);
+			error!("{:?}", e);
 			false
 		}
 	}
@@ -214,7 +214,7 @@ pub fn get_redis_connection(app_config: &AppConfig) -> Option<redis::Connection>
 		Some(result)
 	}
 	else {
-		println!("Unable to establish a connection to Redis Server at host {}:{}",
+		error!("Unable to establish a connection to Redis Server at host {}:{}",
 			app_config.rq_host,
 			app_config.rq_port
 		);
@@ -258,7 +258,7 @@ pub fn hashmap_value_to_utcdatetime(hashmap: &HashMap<String, Vec<u8>>, key: &st
 					Some(value.into())  // this is perhaps too-implicit, but it's converting a DateTime<FixedOffset> to UTC.
 				},
 				Err(err) => {
-					println!("Error while converting hashmap key '{}' to UTC DateTime: {}", key, err);
+					error!("Error while converting hashmap key '{}' to UTC DateTime: {}", key, err);
 					None
 				}
 			}
