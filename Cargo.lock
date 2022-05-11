@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "btu_cli"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "btu_scheduler",
  "clap",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "btu_daemon"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "btu_scheduler",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "btu_scheduler"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",

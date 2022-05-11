@@ -170,6 +170,7 @@ pub mod task {
 pub mod task_schedule {
 	
 	use std::convert::TryFrom;
+	use anyhow::anyhow as anyhow_macro;
 	use chrono_tz::Tz;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
@@ -221,19 +222,21 @@ pub mod task_schedule {
 		}
 
 		/// Create an RQ Job struct from a BTU Task Schedule struct.
-		pub fn to_rq_job(&self, app_config: &AppConfig) -> RQJob {
+		pub fn to_rq_job(&self, app_config: &AppConfig) -> Result<RQJob, anyhow::Error> {
 
 			let mut new_job: RQJob = RQJob::new_with_defaults();
 			new_job.description = self.task_description.clone();
+
 			match crate::get_pickled_function_from_web(&self.task, Some(&self.id), app_config) {
 				Ok(byte_result) => {
 					new_job.data = byte_result;
 				}
 				Err(error_message) => {
-					panic!("Error while requesting pickled Python function:\n{}", error_message);
+					// without the turbofish, I get a "type annotations needed" warning from the compiler.
+					return Err::<RQJob, anyhow::Error>(anyhow_macro!("Error while requesting pickled Python function:\n{}", error_message));
 				}
 			}
-			new_job
+			Ok(new_job)
 		}
 
 
@@ -308,12 +311,14 @@ pub mod scheduler {
 
 	use std::collections::VecDeque;
 	use std::fmt;
-	use chrono::{DateTime, Utc}; // See also: DateTime, Local, TimeZone
+	use anyhow::anyhow as anyhow_macro;
+	use chrono::{DateTime, SecondsFormat, Utc}; // See also: DateTime, Local, TimeZone
 	use chrono::NaiveDateTime;
 	use redis::{self, Commands, RedisError};
 	use tracing::{trace, debug, info, warn, error, span, Level};
-	use crate::email::BTUEmail;
-use crate::{btu_cron, config, rq};
+
+	use crate::email::{BTUEmail, make_email_body_preamble};
+	use crate::{btu_cron, config, rq};
 	use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
 
 	// static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
@@ -591,15 +596,18 @@ use crate::{btu_cron, config, rq};
 			match run_immediate_scheduled_task(app_config, &task_schedule_key, internal_queue) {
 				Ok(_) => {
 					if app_config.email_when_queuing {
-						// Send some emails
+						// Send emails that mention the Task was enqueued.  This is useful for debugging or building confidence in the BTU.
 						info!("Attempting to send an email about this Task...");
-						let email_result = crate::email::send_email(&app_config, "Queuing a Task", task_schedule_key);  // don't lose ownership of the original
+						let body: String = format!("{}\n{}",
+							make_email_body_preamble(app_config),
+							format!("I am enqueuing BTU Task Schedule {} into a Python Redis Queue (RQ)", task_schedule_key)
+						);
+						let email_result = crate::email::send_email(&app_config, "BTU is enqueuing a Task Schedule ", &body);  // don't lose ownership of the original
 						debug!("SMTP Response: {:?}", email_result);
 						if email_result.is_err() {
 							error!("Error while attempting to send an email: {:?}", email_result.err().unwrap());
 						}
 					}
-					
 				},
 				Err(err) => {
 					error!("Error while attempting to run Task Schedule {} : {}", task_schedule_key, err);
@@ -610,24 +618,27 @@ use crate::{btu_cron, config, rq};
 
 	pub fn run_immediate_scheduled_task(app_config: &config::AppConfig, 
 		                                task_schedule_id: &str,
-										internal_queue: &mut VecDeque<String>) -> Result<String,String> {
+										internal_queue: &mut VecDeque<String>) -> Result<(), anyhow::Error> {
 
 		// 0. Remove the Task from the Schedule (so it doesn't get executed twice)
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		let redis_result: redis::RedisResult<u64> = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id);
-		if redis_result.is_err() {
-			return Err(redis_result.err().unwrap().to_string());
-		}
+		
+		redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id)?;
+		
+		// let redis_result: redis::RedisResult<u64> = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id);
+		// if redis_result.is_err() {
+		//	anyhow_macro!("{}", redis_result.err().unwrap().to_string());
+		//}
 
 		// 1. Read the MariaDB database to construct a BTU Task Schedule struct.
 		let task_schedule = read_btu_task_schedule(app_config, task_schedule_id);
 		if task_schedule.is_none() {
-			return Err("Unable to read Task Schedule from MariaDB database.".to_string());
+			return Err(anyhow_macro!("Unable to read Task Schedule from MariaDB database."));
 		}
 		let task_schedule: BtuTaskSchedule = task_schedule.unwrap();  // shadow original variable.
 
 		// 3. Create an RQ Job from the BtuTask struct.
-		let rq_job: rq::RQJob = task_schedule.to_rq_job(app_config);
+		let rq_job: rq::RQJob = task_schedule.to_rq_job(app_config)?;
 		debug!("Created an RQJob struct: {}", rq_job);
 
 		// 4. Save the new Job into Redis.
@@ -646,7 +657,7 @@ use crate::{btu_cron, config, rq};
 			  Which is very easy: just push the Task Schedule ID back into the Internal Queue! :)
 		*/
 		internal_queue.push_back(task_schedule_id.to_string());
-		Ok("".to_string())
+		Ok(())
 	}
 
 	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledTask {

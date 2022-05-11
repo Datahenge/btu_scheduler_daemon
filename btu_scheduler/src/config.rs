@@ -40,6 +40,8 @@ mod error {
 
 #[derive(Deserialize, Serialize)]
 pub struct AppConfig {
+
+	pub environment_name: Option<String>,
 	pub full_refresh_internal_secs: u32,
 	pub time_zone_string: String,
 	pub tracing_level: LevelFilterWrapper,
@@ -111,6 +113,7 @@ impl AppConfig {
 		error!("You will need to create a configuration file manually.");
 		error!("Below is an example of the file's contents:\n");
 		let default_config = AppConfig {
+			environment_name: Some("Development".to_string()),
 			full_refresh_internal_secs: 180,
 			time_zone_string: "UTC".to_string(),
 			tracing_level: LevelFilterWrapper::new(filter::LevelFilter::INFO),

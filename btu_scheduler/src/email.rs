@@ -1,6 +1,7 @@
 // email.rs
 
 use anyhow::{Context as AHContext, Result as AHResult};
+use chrono::{SecondsFormat, Utc};
 use lettre::{SmtpClient, SmtpTransport, Transport};
 use lettre::smtp::authentication::Credentials;
 use lettre::smtp::response::Response;
@@ -78,4 +79,16 @@ fn make_transport(mail_host: &str, mail_username: String, mail_password: String)
 		.credentials(Credentials::new(mail_username, mail_password))
 		.transport();
 	Ok(transport)
+}
+
+
+pub fn make_email_body_preamble(app_config: &AppConfig) -> String {
+    
+    let preamble: String = format!("{}<br>{}<br>{}<br>",
+        "Hi, I am the BTU scheduler daemon.",
+        format!("The current time is {} (UTC).", Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)),
+        format!("My environment is named: {}", app_config.environment_name.as_ref().unwrap_or(&"Not Specified".to_owned()))
+    );
+
+    preamble
 }

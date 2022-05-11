@@ -141,7 +141,7 @@ fn main() {
     test_configuration_file();  // ensure the TOML configuration file meets the struct's requirements.
     let temp_app_config: MutexGuard<AppConfig> =  APP_CONFIG.lock().unwrap();  // lock the configuration for a while during initialization.
 
-    // Initialize tracing globally.  For the remainder of the program, avoid the use of println.
+    // Initialize tracing globally.  For the remainder of the program, avoid the use of println macro.
     tracing_subscriber::registry()
         .with(CustomLayer)
         .with(temp_app_config.tracing_level.get_level())
@@ -208,7 +208,7 @@ fn main() {
                         Some(value) => {
                             next_task_schedule_id = value;
                             // dbg!("{} : Popped value '{}' from internal queue.  Calculating next execution times, and writing them in RQ Database.",
-                            // get_datetime_now_string(), next_task_schedule_id);
+                            //      get_datetime_now_string(), next_task_schedule_id);
 
                             if let Ok(unlocked_app_config) = APP_CONFIG.lock() {
                                 let sql_result =  task_schedule::read_btu_task_schedule(&*unlocked_app_config, &next_task_schedule_id);
