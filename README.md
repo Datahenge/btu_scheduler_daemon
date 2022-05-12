@@ -115,9 +115,7 @@ WantedBy=multi-user.target
 ### TODO:
 The following are some ideas I'm still working on:
 
-* A companion CLI application you can use to ask the daemon about its current status.
 * Reads Task Schedules not only from Frappe DocType `BTU Task Schedule`, but optionally from JSON or TOML files.
-* Print activity to either standard output, or a log file.  The latter can be achieved through systemd service units.
 
 #### See also:
 https://github.com/Couragium/rsmq-async-rs
