@@ -476,14 +476,15 @@ pub mod scheduler {
 		/*
 			Developer Notes:
 			
-			1. The only caller for this function is Thread #1.
+			1. This function's only caller is Thread #1.
 
 			2. This function's concept was derived from the Python 'rq_scheduler' library.  In that library, the public
-			   entrypoint (from the website) was named a function 'cron()'.  That function did a few things:
+			   entrypoint (from the website) was named a function 'cron()'.  That cron() function did a few things:
 
 			   * Created an RQ Job object in the Redis datbase.
-			   * Calculated that Job's next execution time, in UTC.
-  			   * Added a Z key to Redis where the "Score" is the Next UTC Runtime, expressed as a Unix Time.
+			   * Calculated the RQ Job's next execution time, in UTC.
+  			   * Added a 'Z' key to Redis where the value of 'Score' is the next UTC Runtime, but expressed as a Unix Time.
+
 				 self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
 
 			3. I am making a deliberate decision to -not- create an RQ Job at this time.  But instead, to create the RQ
@@ -494,33 +495,37 @@ pub mod scheduler {
 			   a BTU Task, I would have to rebuild all related Task Schedules.  Instead, by waiting until execution time, I only have
 			   to react to Schedule modfications in the Frappe web app; not Task modifications.
 
-			   The disadvantage is that if the Frappe Web Server is not online and accepting REST API requests, when it's
-			   time to run a Task Schedule?  Then BTU Scheduler will fail.  Because it needs Frappe alive to construct a pickled
-			   RQ Job.
+			   The disadvantage: if the Frappe Web Server is not online and accepting REST API requests, when it's
+			   time to run a Task Schedule?  Then BTU Scheduler will fail: it cannot create a pickled RQ Job without the Frappe web server's APIs.
 
-			   Of course, if the Frappe web server is offline, there's a good chance the BTU Task Schedule might fail anyway.
-			   So I think the benefits of waiting to create RQ Jobs outweights the drawbacks.
+			   Of course, if the Frappe web server is offline, that's usually an indication of a larger problem.  In which case, the
+			   BTU Task Schedule might fail anyway.  So overall, I think the benefits of waiting to create RQ Jobs outweighs the drawbacks.
+
+			4. What if a race condition happens, where a newer Schedule arrives, before a previous Schedule has been sent to a Python RQ?
+			   A redis sorted set can only store the same key once.  If we make the Task Schedule ID the key, the newer "next date" will overwrite
+			   the previous one.
+
+			   To handle this, the Sorted Set "key" must be the concatentation of Task Schedule ID and Unix Time.
 		*/
 		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::tz_cron_to_utc_datetimes(&task_schedule.cron_string,
 			                                                                       task_schedule.cron_timezone,
 																				   None,
-																				   1).unwrap();
-		if next_runtimes.len() == 0 {
+																				   1).unwrap();  // retrieve only 1 result
+		/*
+		  Notice the line above: Only retrieving the 1st value from the result vector.  Later, it might be helpful to fetch
+		  multiple Next Execution Times, because of time zone shifts around Daylight Savings.
+		*/
+
+		if next_runtimes.len() == 0 {  // error because no results were returned
 			error!("Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
 			return ()
 		}
 
-		/*
-		  Developer Note: I am only retrieving the 1st value from the result vector.
-		                  Later, it might be helpful to use multiple Next Execution Times,
-						  because of time zone shifts around Daylight Savings.
-		*/
-
 		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let sorted_set_key: String = format!("{}|{}", task_schedule.id, next_runtimes[0].timestamp());  // concatentate Task Schedule ID and Next Runtime, using pipe separator.
 
-		// The Redis 'zadd()' operation returns an integer.
-		let some_result: Result<std::primitive::u32, RedisError>;
-		some_result = redis_conn.zadd(RQ_KEY_SCHEDULED_TASKS, &task_schedule.id, next_runtimes[0].timestamp());
+		let some_result: Result<std::primitive::u32, RedisError>;  // the Redis 'zadd()' operation returns an integer
+		some_result = redis_conn.zadd(RQ_KEY_SCHEDULED_TASKS, sorted_set_key, next_runtimes[0].timestamp());
 
 		match some_result {
 			Ok(_result) => {
@@ -559,8 +564,7 @@ pub mod scheduler {
 
 		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
 		// the Z-score represents the Unix Timestamp the Job is supposed to execute on.
-		// By fetching ALL the values below a certain threshhold (Timestamp), the program knows precisely which Jobs
-		// to enqueue...
+		// By fetching ALL values below a certain threshold (Timestamp), the program knows precisely which Task Schedules to enqueue...
 
 		// rq_print_scheduled_tasks(&app_config);
 
@@ -571,14 +575,32 @@ pub mod scheduler {
 		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
 		let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore(RQ_KEY_SCHEDULED_TASKS, 0, sched_before_unix_time);
 		if redis_result.is_ok() {
-			let jobs_to_enqueue = redis_result.unwrap();
-			if jobs_to_enqueue.len() > 0 {
-				info!("Found {:?} Task Schedules that qualify for immediate execution.", jobs_to_enqueue.len());
+			let zranges: Vec<String> = redis_result.unwrap();
+			if zranges.len() > 0 {
+				info!("Found {:?} Task Schedules that qualify for immediate execution.", zranges.len());
 			}
-			jobs_to_enqueue  // return a Vector of Task Schedule identifiers
+			// The strings in the vector are a concatenation:  Task Schedule ID, pipe character, Unix Time.
+			// Need to split off the trailing Unix Time, to obtain a list of Task Schedules.
+			// NOTE: The syntax below is -very- "Rusty" (imo): maps the values returned by an iterator, using a closure function.
+			let mut task_schedules_to_enqueue: Vec<String> = zranges.iter().map(|x| -> String {
+
+				let string_parts: Vec<&str> = x.split("|").collect::<Vec<&str>>();
+				if string_parts.len() == 0 {
+					// If the string didn't have a pipe character to split, I don't want the program to panic, but this definitely deserves a logged Error.
+					error!("Unable to split the key of this Redis Sorted Set: {}", x);
+					return "".to_string();
+				}
+				string_parts[0].to_string()
+			}).collect::<Vec<_>>();
+
+			// Remove any empty strings created by unsplittable strings:
+			task_schedules_to_enqueue.retain(|x| *x != "".to_string());  // retain() modifies self, so it's an an "inline function" per say.
+
+			// Finally, return a Vector of Task Schedule identifiers:
+			task_schedules_to_enqueue
 		}
 		else {
-			Vec::new()
+			Vec::new()  // if nothing to enqueue, then return an empty Vector.
 		}
 	}
 

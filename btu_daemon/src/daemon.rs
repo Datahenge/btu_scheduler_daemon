@@ -141,15 +141,14 @@ fn main() {
     test_configuration_file();  // ensure the TOML configuration file meets the struct's requirements.
     let temp_app_config: MutexGuard<AppConfig> =  APP_CONFIG.lock().unwrap();  // lock the configuration for a while during initialization.
 
-    // Initialize tracing globally.  For the remainder of the program, avoid the use of println macro.
+    // Initialize tracing globally.  For the remainder of the program, avoid using the println! macro.
     tracing_subscriber::registry()
         .with(CustomLayer)
         .with(temp_app_config.tracing_level.get_level())
         .init();
 
-    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // We require 3 additional threads, besides the main thread.
-    /*  Create a new VecDeque, and -move- into an ArcMutex.
-        This allows the queue to be passed between threads.
+    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(3);  // Daemon requires 3 additional thread handles, besides the main thread.
+    /*  Create a new VecDeque, and -move- into an ArcMutex.  This enables the Internal Queue to be passed between threads.
     */
     let internal_queue = Arc::new(Mutex::new(VecDeque::<String>::new()));  // using a 'turbofish' to specify the type of the VecDeque (String in this case)
 
@@ -191,25 +190,22 @@ fn main() {
       ----------------
        Thread #1:  This thread reads the Internal Queue in a FIFO manner.
                    For each Task Schedule ID found:
-                   1.  Write the "Next Execution Times" to the Python RQ (Redis Queue) database.
-                   2.  Nothing else; do not attempt to build an RQ Job at this time.  This is a deliberate design decision by the author.
+                   1.  Write the "Next Execution Times" to the Python RQ (Redis Queue) database using zadd.
+                   2.  Nothing else.
+                   3.  Do NOT attempt to construct an RQ Job in-advance.  (deliberate design decision by the author)
       ----------------
     */
     let queue_counter_1 = Arc::clone(&internal_queue);
     let thread_handle_1 = thread::Builder::new().name("1_Internal_Queue".to_string()).spawn(move || {
         loop {
-            // Attempt to acquire a lock
+            // Attempt to acquire a lock...
             if let Ok(mut unlocked_queue) = queue_counter_1.lock() {
-                // Lock acquired.
+                // ...lock acquired.
                 if ! (*unlocked_queue).is_empty() {
 
-                    let next_task_schedule_id: String;
                     match (*unlocked_queue).pop_front() {  // Pop the next value out of the queue (FIFO)
                         Some(value) => {
-                            next_task_schedule_id = value;
-                            // dbg!("{} : Popped value '{}' from internal queue.  Calculating next execution times, and writing them in RQ Database.",
-                            //      get_datetime_now_string(), next_task_schedule_id);
-
+                            let next_task_schedule_id: String = value;  // BTU Task Schedule 'name'
                             if let Ok(unlocked_app_config) = APP_CONFIG.lock() {
                                 let sql_result =  task_schedule::read_btu_task_schedule(&*unlocked_app_config, &next_task_schedule_id);
                                 if let Some(btu_task_schedule) = sql_result {
@@ -224,7 +220,6 @@ fn main() {
                         None => {
                         }
                     }
-
                 }
             }
             thread::sleep(Duration::from_millis(1250));  // Yield control to another thread.
