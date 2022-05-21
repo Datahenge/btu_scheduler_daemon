@@ -44,21 +44,37 @@ Regardless of where you save the executables, you must create and maintain a TOM
 Below is a sample of what this configuration file should look like.  You **must** edit this file, and enter your own environment's credentials and information.
 
 ```toml
-# This is the TOML configuration file for the BTU Scheduler Daemon
 name = "BTU Scheduler Daemon"
-full_refresh_internal_secs = 90
+environment_name = "DEV"
+full_refresh_internal_secs = 900
 scheduler_polling_interval=60
+time_zone_string="America/Los_Angeles"
+tracing_level="INFO"
 
+# Email Setup
+email_address_from = "testing@datahenge.com"
+email_host_name = "asmtp.mail.my_email_provider.com"
+email_host_port = 587
+email_account_name = "testing@datahenge.com"
+email_account_password  = "my_smtp_email_password"
+
+# Email Features
+email_addresses = [ "brian@datahenge.com" ]
+email_on_level="INFO"
+email_when_queuing=true
+
+# MySQL
 mysql_user = "root"
-mysql_password = "some_password"
+mysql_password = "password_for_mysql_database"
 mysql_host = "localhost"
-mysql_port = 3313
-mysql_database = "foo"
+mysql_port = 3306
+mysql_database = "my_erpnext_db_name"
 
+# RQ
 rq_host = "127.0.0.1"
 rq_port = 11000
-
 socket_path = "/tmp/btu_scheduler.sock"
+socket_file_group_owner = "erpnext_group"
 webserver_ip = "127.0.0.1"
 webserver_port = 8000
 webserver_token = "token abcdef123456789:abcdef123456789"
@@ -99,9 +115,7 @@ WantedBy=multi-user.target
 ### TODO:
 The following are some ideas I'm still working on:
 
-* A companion CLI application you can use to ask the daemon about its current status.
 * Reads Task Schedules not only from Frappe DocType `BTU Task Schedule`, but optionally from JSON or TOML files.
-* Print activity to either standard output, or a log file.  The latter can be achieved through systemd service units.
 
 #### See also:
 https://github.com/Couragium/rsmq-async-rs
