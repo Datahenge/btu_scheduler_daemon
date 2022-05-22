@@ -13,6 +13,7 @@ pub mod config;
 pub mod errors;
 pub mod logging;
 pub mod rq;
+pub mod scheduler;
 
 #[cfg(feature = "email")]
 pub mod email;
@@ -171,13 +172,16 @@ pub mod task_schedule {
 	
 	use std::convert::TryFrom;
 	use anyhow::anyhow as anyhow_macro;
+	use chrono::{DateTime, Utc};
 	use chrono_tz::Tz;
 	use mysql::PooledConn;
 	use mysql::prelude::Queryable;
 	use tracing::{trace, debug, info, warn, error, span, Level};
+	use crate::btu_cron;
 	use crate::config::{self, AppConfig};
 	use crate::rq::RQJob;
 	use crate::task::BtuTask;
+	use crate::scheduler::RQScheduledTask;
 
 	// Newtype Pattern:
 	pub struct MyTz(Tz);
@@ -203,7 +207,7 @@ pub mod task_schedule {
 		pub id: String,
 		task: String,
 		task_description: String,
-		enabled: u8,
+		pub enabled: u8,
 		queue_name: String,
 		redis_job_id: Option<String>,  // Using Option here, because it's quite possible for BTU App to create a schedule, but not populate this!
 		argument_overrides: Option<String>,  // MUST use Option here, if the result is at all Nullable.
@@ -239,7 +243,31 @@ pub mod task_schedule {
 			Ok(new_job)
 		}
 
+		/**
+			Return on optional Vector of UTC Datetimes, which are the next execution times for this Task Schedule.
+		 */
+		pub fn next_runtimes(&self, from_utc_datetime: &Option<DateTime<Utc>>, number_results: &usize) -> Option<Vec<DateTime<Utc>>> {
 
+			let next_runtimes = btu_cron::tz_cron_to_utc_datetimes(
+				&self.cron_string,
+				self.cron_timezone,
+				*from_utc_datetime,
+				number_results
+			);
+
+			if next_runtimes.is_err() {
+				error!("Cannot calculate 'Next Execution Time' values for Task Schedule {}", &self.id);
+				return None;
+			}				
+			if next_runtimes.as_ref().unwrap().len() == 0 {  // error because no results were returned
+				error!("Cannot calculate 'Next Execution Time' values for Task Schedule {}", &self.id);
+				return None;
+			}
+
+			Some(next_runtimes.unwrap())
+			// let result: Vec<DateTime<Utc>> = next_runtimes.unwrap();
+			// Some(result)
+		}
 	}
 
 	/** Given a Task Schedule identifier (string), connect to MySQL, query the table,
@@ -307,431 +335,6 @@ pub mod task_schedule {
 	}
 }
 
-pub mod scheduler {
-
-	use std::collections::VecDeque;
-	use std::fmt;
-	use anyhow::anyhow as anyhow_macro;
-	use chrono::{DateTime, SecondsFormat, Utc}; // See also: DateTime, Local, TimeZone
-	use chrono::NaiveDateTime;
-	use redis::{self, Commands, RedisError};
-	use tracing::{trace, debug, info, warn, error, span, Level};
-
-	use crate::email::{BTUEmail, make_email_body_preamble};
-	use crate::{btu_cron, config, rq};
-	use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
-
-	// static RQ_SCHEDULER_NAMESPACE_PREFIX: &'static str = "rq:scheduler_instance:";
-	// static RQ_KEY_SCHEDULER: &'static str = "rq:scheduler";
-    // static RQ_KEY_SCHEDULER_LOCK: &'static str = "rq:scheduler_lock";
-    static RQ_KEY_SCHEDULED_TASKS: &'static str = "btu_scheduler:task_execution_times";
-
-	#[derive(Debug, PartialEq, Clone)]
-	pub struct RQScheduledTask {
-		pub task_schedule_id: String,
-		pub next_datetime_unix: i64,
-		pub next_datetime_utc: DateTime<Utc>,
-	}
-
-	impl std::fmt::Display for RQScheduledTask {
-		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		  write!(f, "{} at {}",
-		      self.task_schedule_id,
-			  self.next_datetime_utc)
-		}
-	}
-
-	impl From<(String,String)> for RQScheduledTask {
-
-		// TODO: Change to a Result with some kind of Error
-		fn from(tuple: (String, String)) -> RQScheduledTask {
-			_from_tuple_to_rqscheduledtask(&tuple).unwrap()
-		}
-	}
-
-	fn _from_tuple_to_rqscheduledtask(tuple: &(String, String)) -> Result<RQScheduledTask, std::io::Error> {
-		/* 
-			The tuple argument consists of 2 Strings: JobId and Unix Timestamp.
-			Using this information, we can build an RQScheduledTask struct.
-			There is no reason to consume the tuple; so accepting it as a reference.
-		*/
-		let timestamp: i64 = tuple.1.parse::<i64>().unwrap();  // coerce the second String into an i64, using "turbofish" syntax
-		let utc_datetime:  DateTime<Utc> = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc);
-		/*
-		let local_time_zone: chrono_tz::Tz = match tuple.2.parse() {
-			Ok(v) => v,
-			Err(e) => {
-				let new_error = std::io::Error::new(std::io::ErrorKind::Other, "Could not match local time zone to chrono Tz.");
-				return Err(new_error)
-			}
-		};
-		 */
-		Ok(RQScheduledTask {
-			task_schedule_id: tuple.0.clone(),
-			next_datetime_unix: timestamp,
-			next_datetime_utc: utc_datetime
-			// next_datetime_local: local_time_zone.from_utc_datetime(&utc_datetime.naive_utc())
-		})
-	}
-
-	// NOTE:  Below is the 'Newtype Pattern'.
-	// It's useful when you need implement Traits you aren't normally allowed to: because you don't own either
-	// the Trait or Type.  In this case, I don't the "From" or "FromIterator" traits, nor the "Vector" type.
-	// But I wrap Vec<RQScheduledTask> in a Newtype, and I can do whatever I want with it.
-
-	pub struct VecRQScheduledTask ( Vec<RQScheduledTask> );
-
-	impl VecRQScheduledTask {
-
-		fn new() -> Self {
-			let empty_vector: Vec<RQScheduledTask> = Vec::new();
-			VecRQScheduledTask(empty_vector)
-		}
-
-		fn len(&self) -> usize {
-			// Because this is just a 1-element tuple, "self.0" gets the inner Vector!
-			self.0.len()
-		}
-
-		fn sort_by_id(self) -> VecRQScheduledTask {
-			// Consumes the current VecRQScheduledTask, and returns another that is sorted by Task Schedule ID.
-			let mut result = self.0;
-			result.sort_by(|a, b| a.task_schedule_id.partial_cmp(&b.task_schedule_id).unwrap());
-			VecRQScheduledTask(result)
-		}
-		
-		fn sort_by_next_datetime(self) -> VecRQScheduledTask {
-			// Consumes the current VecRQScheduledTask, and returns another that is sorted by Task Schedule ID.
-			let mut result = self.0;
-			result.sort_by(|a, b| a.next_datetime_unix.partial_cmp(&b.next_datetime_unix).unwrap());
-			VecRQScheduledTask(result)
-		}
-
-	}
-
-	impl std::iter::FromIterator<Result<RQScheduledTask, std::io::Error>> for VecRQScheduledTask {
-
-		fn from_iter<T>(iter: T) -> VecRQScheduledTask
-		where T: IntoIterator<Item=Result<RQScheduledTask, std::io::Error>> {
-			
-			let mut result: VecRQScheduledTask = VecRQScheduledTask::new();
-			for inner in iter {
-				result.0.push(inner.unwrap()); 
-			}
-			result
-		}
-	}
-
-	// Create a 3rd struct which will contain a reference to your set of data.
-	struct IterNewType<'a> {
-		inner: &'a VecRQScheduledTask,
-		// position used to know where you are in your iteration.
-		pos: usize,
-	}
-	
-	// Now you can just implement the `Iterator` trait on your `IterNewType` struct.
-	impl<'a> Iterator for IterNewType<'a> {
-
-		type Item = &'a RQScheduledTask;
-
-		fn next(&mut self) -> Option<Self::Item> {
-			if self.pos >= self.inner.len() {
-				// No more data to read, so stop here.
-				None
-			} else {
-				// We increment the position of our iterator.
-				self.pos += 1;
-				// We return the current value pointed by our iterator.
-				self.inner.0.get(self.pos - 1)
-			}
-		}
-	}
-	
-	impl VecRQScheduledTask {
-		fn iter<'a>(&'a self) -> IterNewType<'a> {
-			IterNewType {
-				inner: self,
-				pos: 0,
-			}
-		}
-	}
-
-	impl From<Vec<(String,String)>> for VecRQScheduledTask {
-
-		fn from(vec_of_tuple: Vec<(String,String)>) -> Self {
-
-			if vec_of_tuple.len() == 0 {
-				// If passed an empty tuple, return an empty Vector of RQScheduledTask.
-				return VecRQScheduledTask::new();
-			}
-			let result = vec_of_tuple.iter().map(_from_tuple_to_rqscheduledtask).collect();
-			result
-		}
-	}
-
-	/**
-	 	This function writes a Task Schedules "Next Execution Time(s)" to the Redis Queue database.
-	*/ 
-	pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &BtuTaskSchedule) -> () {
-		/*
-			Developer Notes:
-			
-			1. This function's only caller is Thread #1.
-
-			2. This function's concept was derived from the Python 'rq_scheduler' library.  In that library, the public
-			   entrypoint (from the website) was named a function 'cron()'.  That cron() function did a few things:
-
-			   * Created an RQ Job object in the Redis datbase.
-			   * Calculated the RQ Job's next execution time, in UTC.
-  			   * Added a 'Z' key to Redis where the value of 'Score' is the next UTC Runtime, but expressed as a Unix Time.
-
-				 self.connection.zadd("rq:scheduler:scheduled_jobs", {job.id: to_unix(scheduled_time)})
-
-			3. I am making a deliberate decision to -not- create an RQ Job at this time.  But instead, to create the RQ
-			   Job later, when it's time to actually run it.
-			   
-			   My reasoning is this: a Frappe web user might edit the definition of a Task between the time it was scheduled
-			   in RQ, and the time it actually executes.  This would make the RQ Job stale and invalid.  So anytime someone edits
-			   a BTU Task, I would have to rebuild all related Task Schedules.  Instead, by waiting until execution time, I only have
-			   to react to Schedule modfications in the Frappe web app; not Task modifications.
-
-			   The disadvantage: if the Frappe Web Server is not online and accepting REST API requests, when it's
-			   time to run a Task Schedule?  Then BTU Scheduler will fail: it cannot create a pickled RQ Job without the Frappe web server's APIs.
-
-			   Of course, if the Frappe web server is offline, that's usually an indication of a larger problem.  In which case, the
-			   BTU Task Schedule might fail anyway.  So overall, I think the benefits of waiting to create RQ Jobs outweighs the drawbacks.
-
-			4. What if a race condition happens, where a newer Schedule arrives, before a previous Schedule has been sent to a Python RQ?
-			   A redis sorted set can only store the same key once.  If we make the Task Schedule ID the key, the newer "next date" will overwrite
-			   the previous one.
-
-			   To handle this, the Sorted Set "key" must be the concatentation of Task Schedule ID and Unix Time.
-		*/
-		let next_runtimes: Vec<DateTime<Utc>> = btu_cron::tz_cron_to_utc_datetimes(&task_schedule.cron_string,
-			                                                                       task_schedule.cron_timezone,
-																				   None,
-																				   1).unwrap();  // retrieve only 1 result
-		/*
-		  Notice the line above: Only retrieving the 1st value from the result vector.  Later, it might be helpful to fetch
-		  multiple Next Execution Times, because of time zone shifts around Daylight Savings.
-		*/
-
-		if next_runtimes.len() == 0 {  // error because no results were returned
-			error!("Cannot calculate the any 'Next Execution Time' values for Task Schedule {}", &task_schedule.id);
-			return ()
-		}
-
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		let sorted_set_key: String = format!("{}|{}", task_schedule.id, next_runtimes[0].timestamp());  // concatentate Task Schedule ID and Next Runtime, using pipe separator.
-
-		let some_result: Result<std::primitive::u32, RedisError>;  // the Redis 'zadd()' operation returns an integer
-		some_result = redis_conn.zadd(RQ_KEY_SCHEDULED_TASKS, sorted_set_key, next_runtimes[0].timestamp());
-
-		match some_result {
-			Ok(_result) => {
-				trace!("Result from 'zadd' is Ok, with the following payload: {}", _result);
-				// Developer Note: I believe a result of 1 means Redis wrote a new record.
-				//                 A result of 0 means the record already existed, and no write was necessary.
-				let message1: &str = &format!("Task Schedule ID {} is being monitored for future execution.", task_schedule.id);
-				// If application configuration has a good Time Zone string, print Next Execution Time in local time...
-				if let Ok(timezone) = app_config.tz() {
-					let message2: &str = &format!("Next Execution Time ({}) for Task Schedule {} = {}", 
-												timezone, task_schedule.id, next_runtimes[0].with_timezone(&timezone).to_rfc2822());	
-					let message3: &str =  &format!("Next Execution Time (UTC) for Task Schedule {} = {}", task_schedule.id, next_runtimes[0].to_rfc3339());
-					info!(message1, message2, message3);
-				}
-				else {
-					// Otherwise, just print in UTC.	
-					let message3: &str =  &format!("Next Execution Time (UTC) for Task Schedule {} = {}", task_schedule.id, next_runtimes[0].to_rfc3339());
-					info!(message1, message3);
-				}
-			},
-			Err(error) => {
-				error!("Result from redis 'zadd' is Err, with the following payload: {}", error);
-			}
-		}
-		/*
-			Developer Notes:
-			* If you were to examine Redis at this time, the "Score" is the Next Execution Time (as a Unix timestamp),
-			and the "Member" is the BTU Task Schedule identifier.
-			* We haven't created an RQ Jobs for this Task Schedule yet.
-		*/
-   		()
-	}
-
-	fn fetch_task_schedules_ready_for_rq(app_config: &config::AppConfig, sched_before_unix_time: i64) -> Vec<String> {
-		// Read the BTU section of RQ, and return the Jobs that are scheduled to execute before a specific Unix Timestamp.
-
-		// Developer Notes: Some cleverness below, courtesy of 'rq-scheduler' project.  For this particular key,
-		// the Z-score represents the Unix Timestamp the Job is supposed to execute on.
-		// By fetching ALL values below a certain threshold (Timestamp), the program knows precisely which Task Schedules to enqueue...
-
-		// rq_print_scheduled_tasks(&app_config);
-
-		debug!("Reviewing the 'Next Execution Times' for each Task Schedule in Redis...");
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with Python RQ database server.");
-		
-		// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
-		// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
-		let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore(RQ_KEY_SCHEDULED_TASKS, 0, sched_before_unix_time);
-		if redis_result.is_ok() {
-			let zranges: Vec<String> = redis_result.unwrap();
-			if zranges.len() > 0 {
-				info!("Found {:?} Task Schedules that qualify for immediate execution.", zranges.len());
-			}
-			// The strings in the vector are a concatenation:  Task Schedule ID, pipe character, Unix Time.
-			// Need to split off the trailing Unix Time, to obtain a list of Task Schedules.
-			// NOTE: The syntax below is -very- "Rusty" (imo): maps the values returned by an iterator, using a closure function.
-			let mut task_schedules_to_enqueue: Vec<String> = zranges.iter().map(|x| -> String {
-
-				let string_parts: Vec<&str> = x.split("|").collect::<Vec<&str>>();
-				if string_parts.len() == 0 {
-					// If the string didn't have a pipe character to split, I don't want the program to panic, but this definitely deserves a logged Error.
-					error!("Unable to split the key of this Redis Sorted Set: {}", x);
-					return "".to_string();
-				}
-				string_parts[0].to_string()
-			}).collect::<Vec<_>>();
-
-			// Remove any empty strings created by unsplittable strings:
-			task_schedules_to_enqueue.retain(|x| *x != "".to_string());  // retain() modifies self, so it's an an "inline function" per say.
-
-			// Finally, return a Vector of Task Schedule identifiers:
-			task_schedules_to_enqueue
-		}
-		else {
-			Vec::new()  // if nothing to enqueue, then return an empty Vector.
-		}
-	}
-
-	/**
-	   Examine the Next Execution Time for all scheduled RQ Jobs (this information is stored in RQ as a Unix timestamps)
-       If the Next Execution Time is in the past?  Then place the RQ Job into the appropriate queue.  RQ and Workers take over from there.
-	*/
-
-	pub fn check_and_run_eligible_task_schedules(app_config: &config::AppConfig, internal_queue: &mut VecDeque<String>) {
-		// Developer Note: This function is analgous to the 'rq-scheduler' Python function: 'Scheduler.enqueue_jobs()'
-		let unix_timestamp_now = Utc::now().timestamp();
-        let task_schedule_keys = fetch_task_schedules_ready_for_rq(app_config, unix_timestamp_now);
-		for task_schedule_key in task_schedule_keys.iter() {
-			info!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", task_schedule_key);
-			match run_immediate_scheduled_task(app_config, &task_schedule_key, internal_queue) {
-				Ok(_) => {
-					if app_config.email_when_queuing {
-						// Send emails that mention the Task was enqueued.  This is useful for debugging or building confidence in the BTU.
-						info!("Attempting to send an email about this Task...");
-						let body: String = format!("{}\n{}",
-							make_email_body_preamble(app_config),
-							format!("I am enqueuing BTU Task Schedule {} into a Python Redis Queue (RQ)", task_schedule_key)
-						);
-						let email_result = crate::email::send_email(&app_config, "BTU is enqueuing a Task Schedule ", &body);  // don't lose ownership of the original
-						debug!("SMTP Response: {:?}", email_result);
-						if email_result.is_err() {
-							error!("Error while attempting to send an email: {:?}", email_result.err().unwrap());
-						}
-					}
-				},
-				Err(err) => {
-					error!("Error while attempting to run Task Schedule {} : {}", task_schedule_key, err);
-				}
-			}
-		}
-	}
-
-	pub fn run_immediate_scheduled_task(app_config: &config::AppConfig, 
-		                                task_schedule_id: &str,
-										internal_queue: &mut VecDeque<String>) -> Result<(), anyhow::Error> {
-
-		// 0. Remove the Task from the Schedule (so it doesn't get executed twice)
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		
-		redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id)?;
-		
-		// let redis_result: redis::RedisResult<u64> = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id);
-		// if redis_result.is_err() {
-		//	anyhow_macro!("{}", redis_result.err().unwrap().to_string());
-		//}
-
-		// 1. Read the MariaDB database to construct a BTU Task Schedule struct.
-		let task_schedule = read_btu_task_schedule(app_config, task_schedule_id);
-		if task_schedule.is_none() {
-			return Err(anyhow_macro!("Unable to read Task Schedule from MariaDB database."));
-		}
-		let task_schedule: BtuTaskSchedule = task_schedule.unwrap();  // shadow original variable.
-
-		// 3. Create an RQ Job from the BtuTask struct.
-		let rq_job: rq::RQJob = task_schedule.to_rq_job(app_config)?;
-		debug!("Created an RQJob struct: {}", rq_job);
-
-		// 4. Save the new Job into Redis.
-		rq_job.save_to_redis(app_config);
-
-		// 5. Enqueue that job for immediate execution.
-		match rq::enqueue_job_immediate(&app_config, &rq_job.job_key_short) {
-			Ok(ok_message) => {
-				info!("Successfully enqueued: {}", ok_message);
-			}
-			Err(err_message) => {
-				error!("Error while attempting to queue job for execution: {}", err_message);
-			}
-		}
-		/* 6. Recalculate the next Run Time.
-			  Which is very easy: just push the Task Schedule ID back into the Internal Queue! :)
-		*/
-		internal_queue.push_back(task_schedule_id.to_string());
-		Ok(())
-	}
-
-	pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledTask {
-		/*
-			Call RQ and request the list of values in "btu_scheduler:job_execution_times"
-		*/
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_TASKS).unwrap().collect();
-		let wrapped_result: VecRQScheduledTask = redis_result.into();
-		wrapped_result		
-	}
-	
-	/**
-		Remove a Task Schedule from the Redis database, to prevent it from executing in the future.
-	*/	
-	pub fn rq_cancel_scheduled_task(app_config: &config::AppConfig, task_schedule_id: &str) -> Result<String,String> {
-		let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-		let redis_result: redis::RedisResult<u64> = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_id);
-		if redis_result.is_err() {
-			return Err(redis_result.err().unwrap().to_string());
-		}
-		return Ok("Scheduled Task successfully removed from Redis Queue.".to_owned());
-	}
-
-	/**
-		Prints upcoming Task Schedules using the configured Time Zone.
-	*/
-	pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
-
-		let tasks: VecRQScheduledTask = rq_get_scheduled_tasks(app_config);  // fetch all the scheduled tasks.
-		let local_time_zone: chrono_tz::Tz = app_config.tz().unwrap();  // get the time zone from the Application Configuration.
-
-		for result in tasks.sort_by_id().iter() {
-			let next_datetime_local = result.next_datetime_utc.with_timezone(&local_time_zone);
-			let message: &str = &format!("Task Schedule {schedule} is scheduled to occur later at {time}", schedule=result.task_schedule_id, time=next_datetime_local);
-			info!(message);
-		};
-	}
-
-	/*
-		add_task_to_rq(
-			cron_string,                # A cron string (e.g. "0 0 * * 0")
-			func=func,                  # Python function to be queued
-			args=[arg1, arg2],          # Arguments passed into function when executed
-			kwargs={'foo': 'bar'},      # Keyword arguments passed into function when executed
-			repeat=10,                  # Repeat this number of times (None means repeat forever)
-			queue_name=queue_name,      # In which queue the job should be put in
-			meta={'foo': 'bar'},        # Arbitrary pickleable data on the job itself
-			use_local_timezone=False    # Interpret hours in the local timezone
-		)
-	*/
-}
 
 /// Call ERPNext REST API and acquire pickled Python function as bytes.
 fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, app_config: &AppConfig) -> Result<Vec<u8>, String> {

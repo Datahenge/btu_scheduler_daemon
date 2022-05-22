@@ -72,7 +72,7 @@ impl RQJob {
 			result_ttl: None,
 			started_at: None,
 			status: None,
-			timeout: 600,  // default of 600 seconds (5 minutes)
+			timeout: 3600,  // default of 3600 seconds (1 hour)
 			worker_name: "".to_owned(),
 		}
 	}

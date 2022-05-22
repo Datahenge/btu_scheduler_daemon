@@ -76,7 +76,7 @@ mod tests {
 		let vec_utc_calculated = tz_cron_to_utc_datetimes("0 */10 1 25 12 * 2021", 
 		                                                  local_timezone,
 														  Some(starting_at_utc_datetime),
-														  number_of_results).unwrap();
+														  &number_of_results).unwrap();
 
 		// There is an 8-hour difference between Los Angeles and UTC in December.
 		// Therefore, with the cron string above, the expected results begin at 9AM UTC.
@@ -101,7 +101,7 @@ mod tests {
 		let vec_utc_calculated = tz_cron_to_utc_datetimes("*/30 * * * *", 
 		                                                  local_timezone,
 														  Some(starting_at_utc_datetime),
-														  number_of_results).unwrap();
+														  &number_of_results).unwrap();
 
 		// There is an 8-hour difference between Los Angeles and UTC in December.
 		// Therefore, with the cron string above, the expected results begin at 9AM UTC.

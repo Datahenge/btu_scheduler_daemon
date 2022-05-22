@@ -100,7 +100,7 @@ pub fn cron_str_to_cron_str7 (cron_expression_string: &str) -> Result<String, Cr
 pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	                            cron_timezone: Tz,
 								from_utc_datetime: Option<DateTime<Utc>>,
-	                            number_of_results: usize) -> Result<Vec<DateTime<Utc>>, CronError> {
+	                            number_of_results: &usize) -> Result<Vec<DateTime<Utc>>, CronError> {
 	/*
 		Given a cron string and Time Zone, what are the next set of UTC Datetime values?
 		Documentation: https://docs.rs/cron/0.9.0/cron
@@ -147,7 +147,7 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	*/
 	if this_cronstruct.hour.is_none() {
 		let mut result: Vec<DateTime<Utc>> = Vec::new();
-		for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(number_of_results) {
+		for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(Utc::now())).take(*number_of_results) {
 			result.push(utc_datetime);
 		}
 		return Ok(result)
@@ -167,7 +167,7 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	// let foo_tz_aware = cron_timezone.from_local_datetime(&foo_naive_datetime).unwrap();
 	// let adjusted_utc: DateTime<Utc> = DateTime::<Utc>::from_utc(foo_tz_aware.naive_utc(), Utc);
 
-	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(actual_utc)).take(number_of_results) {
+	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(actual_utc)).take(*number_of_results) {
 
 		// This logic acquire the exact same Hour:Minute, but in local time.
 		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(utc_datetime.timestamp(), 0);

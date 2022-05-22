@@ -160,7 +160,7 @@ pub fn handle_client_request(mut stream: UnixStream,
             return Ok("Replied successfully to UDS client's 'build_task_schedule' request.".to_owned())
         },
         "cancel_task_schedule" => {
-            // This request must have arrive with a 2nd argument: 'request_content'
+            // This request must have arrive with a 2nd argument: 'request_content', which is the Task Schedule ID.
             if client_message.request_content.is_none() {
                 let new_error = std::io::Error::new(std::io::ErrorKind::Other, "Request 'cancel_task_schedule' missing required argument 'request_content'");
                 return Err(new_error);
