@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 # repository = "https://github.com/datahenge/btu_scheduler"
 
 # NOTE: This version below will be picked up by "btu_daemon --version"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 
 [features]
@@ -25,7 +25,7 @@ chrono = "0.4"
 chrono-tz = "0.6.0"
 lettre = { version = "0.9.6", optional = true}
 lettre_email = { version = "0.9.4", optional = true}
-mysql = "21.0.2"
+mysql = "22.1.0"
 redis = "0.21.4"
 serde = { version = "1.0.130", features = ["derive"] }
 syn = "1.0.83"
