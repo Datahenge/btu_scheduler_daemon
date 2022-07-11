@@ -264,7 +264,7 @@ fn main() {
 
                             // Log the Task Schedule:
                             if let Ok(unlocked_app_config) = APP_CONFIG.lock() {
-                                crate::scheduler::rq_print_scheduled_tasks(&unlocked_app_config);      
+                                crate::scheduler::rq_print_scheduled_tasks(&unlocked_app_config, false);      
                             }
                         },
                         Err(e) => error!("Error while repopulating the internal queue! {:?}", e)

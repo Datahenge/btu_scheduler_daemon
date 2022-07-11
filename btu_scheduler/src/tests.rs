@@ -145,13 +145,45 @@ mod tests {
 		let app_config: AppConfig = AppConfig::new_from_toml_file().unwrap();
 		let email_result = crate::email::send_email(&app_config,
 			                                        "BTU Unit Test",
-													"Called by Unit Test named 'test_rqscheduledtask_from_strings()'");
+													"Called by Unit Test named 'test_email_info()'");
 		if email_result.is_err() {
 			println!("\n----> Error Response: {:?}\n", &email_result.as_ref().err().unwrap());
 		}
 		assert_eq!(email_result.is_ok(), true);
 	}
 
+
+	#[test]
+	fn test_multi_day_cron1() {
+		/* 
+			Depending on the environment, Sunday might the 0th day of the week, or the 1st, or the 2nd, etc.
+			So the 'cron' library wisely decided to only use 3-character string names for days of the week (e.g. Sun, Mon, Tue, etc)
+		*/
+		use cron::Schedule;
+		use chrono::{TimeZone, Utc};
+		use std::str::FromStr;
+		// min  | hour | day of month  | month  | day of week
+		let expression_string_5: &str = "32 3 * * Sun-Wed,Sat";
+		// sec | min  | hour | day of month  | month  | day of week  |  year		
+		let expression_string_7: &str = &cron_str_to_cron_str7(expression_string_5).unwrap();
+		let _schedule = Schedule::from_str(expression_string_7).unwrap();
+	}
+
+	#[test]
+	fn test_multi_day_cron2() {
+		use cron::Schedule;
+		use chrono::{TimeZone, Utc};
+		use std::str::FromStr;
+
+		// min  | hour | day of month  | month  | day of week		
+		let expression_string: &str = "32 3 * * Sun-Wed,Sat";
+		let timezone_pacific = chrono_tz::America::Los_Angeles;
+		let starting_at_utc_datetime: DateTime<Utc> = Utc.ymd(2021, 12, 25).and_hms(0, 0, 1);
+
+		let _this_result = tz_cron_to_utc_datetimes(expression_string, timezone_pacific, Some(starting_at_utc_datetime), &12);
+	}
+  	
+}  // end mod tests
 
 	/* Feature below is Not-Yet-Implemented.
 
@@ -178,4 +210,3 @@ mod tests {
         );
 	}
  	*/
-}

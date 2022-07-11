@@ -208,7 +208,7 @@ fn cli_list_jobs(app_config: &AppConfig) {
   Prints to console the ID and Description of all enabled BTU Tasks in the MariaDB database.
 */ 
 fn cli_list_tasks(app_config: &AppConfig) {
-    print_enabled_tasks(app_config);
+    print_enabled_tasks(app_config, true);
 }
 
 
@@ -309,5 +309,5 @@ fn cli_show_job_details(app_config: &AppConfig, job_id: &str) -> () {
 
 
 fn cli_show_scheduled_jobs(app_config: &AppConfig) {
-	scheduler::rq_print_scheduled_tasks(app_config);
+	scheduler::rq_print_scheduled_tasks(app_config, true);
 }

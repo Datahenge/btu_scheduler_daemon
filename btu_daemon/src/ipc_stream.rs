@@ -177,7 +177,7 @@ pub fn handle_client_request(mut stream: UnixStream,
                     stream_out.write_all(okay_message.as_bytes()).expect("Failed to 'write_all'");
 
                     // Before finishing, log the Tasks that are still known to the BTU:
-                    crate::scheduler::rq_print_scheduled_tasks(&app_config);      
+                    crate::scheduler::rq_print_scheduled_tasks(&app_config, false);      
                     return Ok(okay_message)
                 },
                 Err(error_message) => {

@@ -139,7 +139,7 @@ pub mod task {
 		}
 	}
 
-	pub fn print_enabled_tasks(app_config: &AppConfig) -> () {
+	pub fn print_enabled_tasks(app_config: &AppConfig, to_stdout: bool) -> () {
 
 		let mut sql_conn: PooledConn;
 		match config::get_mysql_conn(app_config) {
@@ -152,18 +152,31 @@ pub mod task {
 			}
 		}
 
-		let query_syntax = "SELECT name, desc_short	FROM `tabBTU Task` WHERE docstatus = 1";
+		let query_syntax = "SELECT name, desc_short	FROM `tabBTU Task` WHERE docstatus = 1 AND is_transient = 0";
 		let task_vector: Vec<(String,String)> = sql_conn.query_map(query_syntax, |row: mysql::Row| {
 			(row.get(0).unwrap(), row.get(1).unwrap())
 		}).unwrap();
 
+		// TODO: Create a new macro that combines info! and println!, or warn! and println, etc.
+		// Something like echo!(level, message, to_stdout) ?
 		if task_vector.len() > 0 {
 			for task in task_vector {
-				info!("Task {} : {}", task.0, task.1);
+				if to_stdout {
+					println!("Task {} : {}", task.0, task.1);
+				}
+				else {
+					info!("Task {} : {}", task.0, task.1);
+				}
 			}
 		}
 		else {
-			warn!("No BTU Tasks are defined in the MariaDB database.");
+			if to_stdout { 
+				println!("No BTU Tasks are defined in the MariaDB database.");
+			}
+			else {
+				warn!("No BTU Tasks are defined in the MariaDB database.");
+			}
+
 		}
 	}
 }  // end of task module.

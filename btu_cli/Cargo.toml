@@ -1,6 +1,6 @@
 [package]
 name = "btu_cli"
-version = "0.3.3"
+version = "0.3.4"
 authors = ["Brian Pond <brian@datahenge.com"]
 license = "MIT OR Apache-2.0"
 description = "CLI application for the BTU Scheduler."
@@ -19,3 +19,18 @@ ureq = { version = "2.3.1", features = ["json"] }
 [dependencies.btu_scheduler]
 version = "~0.3"
 path = "../btu_scheduler"
+
+[package.metadata.deb]
+# Everything in this section relates to creating a Debian package.
+maintainer = "Brian Pond<brian@datahenge.com>"
+copyright = "2022, Datahenge LLC <brian@datahenge.com>"
+license-file = ["../LICENSE.txt", "0"]
+extended-description = """\
+A CLI companion application for the BTU Scheduler background daemon."""
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/btu", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/btu/README", "644"],
+]

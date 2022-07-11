@@ -440,8 +440,12 @@ pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledT
 		Call RQ and request the list of values in "btu_scheduler:job_execution_times"
 	*/
 	let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-	let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_TASKS).unwrap().collect();
+	let redis_result: Vec<(String, String)> = redis_conn.zscan(RQ_KEY_SCHEDULED_TASKS).unwrap().collect();  // vector of tuple
+	let number_results = redis_result.len();
 	let wrapped_result: VecRQScheduledTask = redis_result.into();
+	if number_results != wrapped_result.len() {
+		println!("Unexpected Error: Number values in Redis: {}.  Number values in VecRQScheduledTask: {}", number_results, wrapped_result.len());
+	}
 	wrapped_result		
 }
 
@@ -484,15 +488,21 @@ pub fn rq_cancel_scheduled_task(app_config: &config::AppConfig, task_schedule_id
 /**
 	Prints upcoming Task Schedules using the configured Time Zone.
 */
-pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig) {
+pub fn rq_print_scheduled_tasks(app_config: &config::AppConfig, to_stdout: bool) {
 
 	let tasks: VecRQScheduledTask = rq_get_scheduled_tasks(app_config);  // fetch all the scheduled tasks.
 	let local_time_zone: chrono_tz::Tz = app_config.tz().unwrap();  // get the time zone from the Application Configuration.
 
+	println!("There are {} BTU Tasks scheduled for automatic execution:", tasks.len());
 	for result in tasks.sort_by_id().iter() {
 		let next_datetime_local = result.next_datetime_utc.with_timezone(&local_time_zone);
 		let message: &str = &format!("Task Schedule {schedule} is scheduled to occur later at {time}", schedule=result.task_schedule_id, time=next_datetime_local);
-		info!(message);
+		if to_stdout {
+			println!("    {}", message);
+		}
+		else {
+			info!(message);	
+		}
 	};
 }
 
