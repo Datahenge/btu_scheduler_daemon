@@ -22,7 +22,12 @@ Read [here](docs/why_the_btu.md) for more about why I needed to create this appl
 
 (*Note to Frappe Framework users: The BTU Scheduler daemon and CLI are -not- Python applications.  They are native Linux applications: 64-bit binary executables.  The source code was written in [The Rust Programming Language](https://www.rust-lang.org/).  This application coexists with the Frappe web server)*
 
-### Installation
+----
+### Debian Package Installation
+(*development in-progress; coming soon*)
+
+ ----
+### Manual Installation
 1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).  There are 2 binary applications:
 
   * `btu-daemon`:  Background daemon that interacts with Frappe BTU and [Python RQ](https://python-rq.org/).
@@ -91,6 +96,7 @@ webserver_token = "token abcdef123456789:abcdef123456789"
 * The `socket_path` is for the BTU background daemon.  I recommend just using the default value shown above.
 * The `webserver_` keys are how BTU cannot to your ERPNext web server.  The `webserver_token` is the token for the ERPNext user that will act as a "service account" for BTU.
 
+----
 ### Usage
 
 #### Testing
