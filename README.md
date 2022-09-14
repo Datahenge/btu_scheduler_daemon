@@ -29,7 +29,7 @@ Read [here](docs/why_the_btu.md) for more about why I needed to create this appl
   * `btu`:  Command line interface for interacting with the daemon and RQ database.
 
 **NOTE**:\
-Due to dependencies on C libraries, the is a **separate binary** for OS based on Debian 10, versus those based on Debian *11*.\
+Due to dependencies on C libraries, there are **different binaries** for installing Debian 10 based OS, versus those based on Debian *11*.\
 I am indicating in Releases which is which.  Make sure you download the correct binaries for your target environment.
 
 2. Save both executable binary files somewhere on your Frappe web server.\
