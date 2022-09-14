@@ -9,8 +9,8 @@ on:
 
 jobs:
   build_and_test_ubuntu18:
-    name: Build binaries for Ubuntu 18.04
-    runs-on: ubuntu-18.04
+    name: Build binaries for Ubuntu 20.04
+    runs-on: ubuntu-20.04
     steps:
       - name: Show GLIBC
         run: ldd --version
