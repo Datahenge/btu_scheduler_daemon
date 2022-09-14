@@ -34,6 +34,10 @@ I am indicating in Releases which is which.  Make sure you download the correct 
 
 2. Save the executables somewhere on your Frappe web server (*typical locations for third-party Linux programs are `/usr/local/bin`*)
 3. Make sure the executables are on your Path, or make symlinks to them.
+4. Finally, ensure the program is marked as executable by Linux:
+```
+sudo chmod 755 /usr/local/bin/btu-daemon
+```
 
 ### Configuration
 Regardless of where you save the executables, you must create and maintain a TOML configuration file here:
