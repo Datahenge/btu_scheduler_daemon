@@ -37,6 +37,7 @@ I am indicating in Releases which is which.  Make sure you download the correct 
 4. Make sure the executables are on your Path (or create symlinks on your Path, that point to the them)
 5. Finally, ensure the program is marked as executable by Linux:
 ```
+sudo chmod 755 /usr/local/bin/btu
 sudo chmod 755 /usr/local/bin/btu-daemon
 ```
 
