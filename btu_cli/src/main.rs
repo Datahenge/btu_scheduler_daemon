@@ -12,70 +12,6 @@ use btu_scheduler::{
     task::{BtuTask, print_enabled_tasks},
 };
 
-fn main() {
-
-	// Step 1.  Load the application configuration.
-	let app_config: AppConfig;
-	match AppConfig::new_from_toml_file() {
-		Ok(result) => {
-			app_config = result;
-		},
-		Err(error) => {
-			println!("Error while creating AppConfig from TOML configuration file.\n{}", error);
-			std::process::exit(1);
-		}
-	}
-
-	// Step 2.  Create the basic skeleton for the command line application.
-	//			Note: The 'add_arguments" function is defined further below.
-	let cli_app = add_arguments(
-		App::new("btu-cli")
-		.about("CLI for BTU Scheduler")
-		.version(btu_scheduler::get_package_version())  // altnerately, .version(crate_version!())
-		.author("Brian Pond <brian@datahenge.com>")
-		.setting(AppSettings::SubcommandRequiredElseHelp)
-	);
-
-	// Warning: The method get_matches() takes ownership of a clap App, and returns a ArgMatches.  Effectively destroying App!
-	// Having read the Clap comments, apparently this is what the developer intended.
-	let matches = cli_app.get_matches();
-
-	match matches.subcommand() {
-		("test-pickler", Some(_)) => {
-			cli_btu_test_pickler(&app_config);
-		},
-		("list-jobs", Some(_)) => {
-			cli_list_jobs(&app_config);
-		},
-		("list-tasks", Some(_)) => {
-			cli_list_tasks(&app_config);
-		},
-		("print-config", Some(_)) => {
-			cli_print_config(&app_config);
-		},
-        ("queue-job-now", Some(arg_matches)) => {
-            let job_id: &str = arg_matches.value_of("job_id").unwrap();
-			cli_queue_job_immediately(&app_config, job_id);
-		},
-        ("queue-task-now", Some(arg_matches)) => {
-            let task_id: &str = arg_matches.value_of("task_id").unwrap();
-			cli_queue_task_immediately(&app_config, task_id);
-		},
-        ("show-scheduled", Some(_)) => {
-			cli_show_scheduled_jobs(&app_config);
-		},
-		("show-job", Some(arg_matches)) => {
-			let job_id: &str = arg_matches.value_of("job_id").unwrap();
-			cli_show_job_details(&app_config, job_id);
-		},
-		("test-ping", Some(_)) => {
-			cli_ping_frappe_web(&app_config);
-		},
-        ("", None) => println!("Please specify a subcommand (stamp, extract)"), // If no subcommand was used it'll match the tuple ("", None)
-		_ => unreachable!(), // If all subcommands are defined above, anything else is unreachable!()
-	}
-}
-
 
 fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
     // This function adds arguments and subcommands to a Clap App.
@@ -90,8 +26,16 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
         .arg(
             Arg::with_name("debug")
             .help("turn on debugging information")
-            .short("d")
-        );
+            .short("d")  // a short, one-letter form
+        )
+        .arg(
+            Arg::with_name("config")
+            .help("path to configuration file")
+            .long("config")
+            .takes_value(true)
+            .value_name("CONFIG_FILE")
+        )
+        ;
 
     // Add some subcommands for Clap.
     let ret = ret
@@ -145,15 +89,111 @@ fn add_arguments<'a, 'b>(cli_app: App<'a, 'b>) -> App<'a, 'b> {
     ret
 }
 
+fn main() {
+
+	// Step 1.  Create the basic skeleton for the command line application.
+    let cli_app = add_arguments(
+		App::new("btu-cli")
+		.about("CLI for BTU Scheduler")
+		.version(btu_scheduler::get_package_version())  // altnerately, .version(crate_version!())
+		.author("Brian Pond <brian@datahenge.com>")
+		.setting(AppSettings::SubcommandRequiredElseHelp)
+	);
+
+	// Note: The method get_matches() takes ownership of a clap App, and returns a ArgMatches.  Effectively destroying App!
+	// Having read the Clap comments, apparently this is what the developer intended.
+	let matches: clap::ArgMatches = cli_app.get_matches();
+
+	// Step 2.  Load the application configuration.  If CLI was called with --config, pass that argument.
+	let app_config: AppConfig;
+	match AppConfig::new_from_toml_file(matches.value_of("config")) {
+		Ok(result) => {
+			app_config = result;
+		},
+		Err(error) => {
+			println!("Error while creating AppConfig from TOML configuration file.\n{}", error);
+			std::process::exit(1);
+		}
+	}
+
+    // Decide if the CLI is running in Debug Mode, or not.
+    let debug_mode: bool;
+    match matches
+        .occurrences_of("debug")
+    {
+        0 => {
+            println!("Debug mode is off");
+            debug_mode = false;
+        },
+        1 => {
+            println!("Debug mode is on");
+            debug_mode = true;
+        },
+        _ => {
+            println!("Unexpected number of occurrences for debug.");
+            debug_mode = true;
+        }
+    }
+
+	match matches.subcommand() {
+		("test-pickler", Some(_)) => {
+			cli_btu_test_pickler(&app_config, debug_mode);
+		},
+		("list-jobs", Some(_)) => {
+			cli_list_jobs(&app_config);
+		},
+		("list-tasks", Some(_)) => {
+			cli_list_tasks(&app_config);
+		},
+		("print-config", Some(_)) => {
+			cli_print_config(&app_config);
+		},
+        ("queue-job-now", Some(arg_matches)) => {
+            let job_id: &str = arg_matches.value_of("job_id").unwrap();
+			cli_queue_job_immediately(&app_config, job_id);
+		},
+        ("queue-task-now", Some(arg_matches)) => {
+            let task_id: &str = arg_matches.value_of("task_id").unwrap();
+			cli_queue_task_immediately(&app_config, task_id);
+		},
+        ("show-scheduled", Some(_)) => {
+			cli_show_scheduled_jobs(&app_config);
+		},
+		("show-job", Some(arg_matches)) => {
+			let job_id: &str = arg_matches.value_of("job_id").unwrap();
+			cli_show_job_details(&app_config, job_id);
+		},
+		("test-ping", Some(_)) => {
+			cli_ping_frappe_web(&app_config, debug_mode);
+		},
+        ("", None) => println!("Please specify a subcommand (stamp, extract)"), // If no subcommand was used it'll match the tuple ("", None)
+		_ => unreachable!(), // If all subcommands are defined above, anything else is unreachable!()
+	}
+}
+
+
+
 /*
     The remaining functions below are the "glue" between the CLI and the BTU library.
 */
 
 
-fn cli_btu_test_pickler(app_config: &AppConfig) {
-    // Function calls the Frappe web server, and asks for 'Hello World' in bytes.
-    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_function_ping_now_bytes",
-        app_config.webserver_ip, app_config.webserver_port);
+fn cli_btu_test_pickler(app_config: &AppConfig, debug_mode: bool) {
+    /*
+        Function calls the Frappe web server, and asks for 'Hello World' in bytes.
+    */
+    let url: String;
+    if app_config.webserver_port == 443 {
+        url = format!("https://{}/api/method/btu.btu_api.endpoints.test_function_ping_now_bytes",
+                      app_config.webserver_ip);
+    }
+    else {
+        url = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_function_ping_now_bytes",
+                      app_config.webserver_ip, app_config.webserver_port);
+    }
+    if debug_mode {
+        println!("Target URL = {}", url);
+    }
 
     let mut request = ureq::get(&url)
         .set("Authorization", &app_config.webserver_token)
@@ -163,6 +203,11 @@ fn cli_btu_test_pickler(app_config: &AppConfig) {
     if app_config.webserver_host_header.is_some() {
         request = request.set("Host", &app_config.webserver_host_header.as_ref().unwrap());
     }
+
+    if debug_mode {
+        println!("Request = {:?}", request.request_url());
+    }
+
     let resp = request.call().unwrap();
 
     assert!(resp.has("Content-Length"));
@@ -212,9 +257,22 @@ fn cli_list_tasks(app_config: &AppConfig) {
 }
 
 
-fn cli_ping_frappe_web(app_config: &AppConfig) {
-    let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_ping",
-        app_config.webserver_ip, app_config.webserver_port);
+fn cli_ping_frappe_web(app_config: &AppConfig, debug_mode: bool) {
+    /*
+        Calls a built-in BTU endpoint 'test_ping'
+    */
+    let url: String;
+    if app_config.webserver_port == 443 {
+        url = format!("https://{}/api/method/btu.btu_api.endpoints.test_ping",
+                      app_config.webserver_ip);
+    }
+    else {
+        url = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_ping",
+                      app_config.webserver_ip, app_config.webserver_port);
+    }
+    if debug_mode {
+        println!("Target URL = {}", url);
+    }
 
     let mut request = ureq::get(&url)
         .set("Authorization", &app_config.webserver_token)

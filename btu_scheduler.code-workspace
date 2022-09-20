@@ -5,9 +5,6 @@
 		}
 	],
 	"settings": {
-		"rust-analyzer.inlayHints.chainingHints": false,
-		"rust-analyzer.inlayHints.parameterHints": false,
-		"rust-analyzer.inlayHints.typeHints": false,
 		"rust-analyzer.updates.askBeforeDownload": true,
 		"rust-analyzer.server.path": "/opt/bin/rust-analyzer/rust-analyzer",
 		"rust-analyzer.trace.extension": true,
@@ -18,6 +15,9 @@
 			"*.py": true,
 			"*.md": true,
 			"*.lock": true
-		}
+		},
+		"rust-analyzer.inlayHints.chainingHints.enable": false,
+		"rust-analyzer.inlayHints.parameterHints.enable": false,
+		"rust-analyzer.inlayHints.typeHints.enable": false
 	}
 }

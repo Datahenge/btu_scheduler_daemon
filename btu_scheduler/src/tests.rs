@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn test_email_info() {
 
-		let app_config: AppConfig = AppConfig::new_from_toml_file().unwrap();
+		let app_config: AppConfig = AppConfig::new_from_toml_file(None).unwrap();
 		let email_result = crate::email::send_email(&app_config,
 			                                        "BTU Unit Test",
 													"Called by Unit Test named 'test_email_info()'");

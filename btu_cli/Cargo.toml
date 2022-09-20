@@ -1,6 +1,6 @@
 [package]
 name = "btu_cli"
-version = "0.3.4"
+version = "0.3.5"
 authors = ["Brian Pond <brian@datahenge.com"]
 license = "MIT OR Apache-2.0"
 description = "CLI application for the BTU Scheduler."
@@ -12,6 +12,7 @@ name = "btu"
 path = "src/main.rs"
 
 [dependencies]
+camino = "1.0.5"
 clap = "2.27"
 serde_json = "1.0.72"
 ureq = { version = "2.3.1", features = ["json"] }

@@ -6,7 +6,8 @@
 */
 
 use std::{fmt, fs};
-use std::path::{Path};
+use std::path::{Path, PathBuf};
+use camino::Utf8PathBuf;
 
 use chrono_tz::Tz;
 use mysql::{Opts, Pool};
@@ -45,7 +46,7 @@ pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
 	pub time_zone_string: String,
 	pub tracing_level: LevelFilterWrapper,
-	
+
 	pub email_address_from: Option<String>,
 	pub email_host_name: Option<String>,
 	pub email_host_port: Option<i16>,
@@ -91,15 +92,23 @@ impl AppConfig {
 		}
 	}
 
-	pub fn new_from_toml_file() -> Result<AppConfig, ConfigError> {
+	pub fn new_from_toml_file(config_file_path: Option<&str>) -> Result<AppConfig, ConfigError> {
 
 		// Read TOML file, and store values here in this configuration.
-		let file_path = Path::new(CONFIG_FILE_PATH);
+		let file_path: Utf8PathBuf;
+		if config_file_path.is_some() {
+			file_path = config_file_path.unwrap().into();
+		}
+		else {
+			file_path = CONFIG_FILE_PATH.into();
+		}
+
 		if ! file_path.exists() {
 			// Originally I intended to create a default configuration.  
 			// But this requires elevating to root and restarting the app.  And either way, the user needs to manually key in
 			// values for MySQL and Redis credentials.  So better to just print and exit.
-			AppConfig::print_default_config_exit();
+			println!("\nError: Configuration file '{}' does not exist.", file_path);
+			AppConfig::print_default_config_exit(&file_path);
 		}
 
 		let file_contents: String = fs::read_to_string(file_path)
@@ -108,8 +117,8 @@ impl AppConfig {
 		AppConfig::new_from_toml_string(&file_contents)
 	}
 
-	pub fn print_default_config_exit() -> () {
-		error!("\nError: No configuration file was found at path: {}", CONFIG_FILE_PATH);
+	pub fn print_default_config_exit(file_path: &Utf8PathBuf) -> () {
+		error!("\nError: No configuration file was found at path: {}", file_path);
 		error!("You will need to create a configuration file manually.");
 		error!("Below is an example of the file's contents:\n");
 		let default_config = AppConfig {

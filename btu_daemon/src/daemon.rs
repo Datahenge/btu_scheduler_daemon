@@ -74,7 +74,8 @@ fn queue_full_refill(queue: &mut VecDeque<String>) ->  mysqlResult<u32> {
  Why a Lazy Static?  So we can pass this configuration struct between threads!
 */
 static APP_CONFIG: Lazy<Mutex<AppConfig>> = Lazy::new(|| {
-    match AppConfig::new_from_toml_file() {
+    // TODO: Need to parse arguments to Daemon for path to configuration file.
+    match AppConfig::new_from_toml_file(None) {
         Ok(app_config) => {
             if app_config.tz().is_err() {
                 error!("Cannot parse time zone string in TOML configuration file: '{}' 

@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 # repository = "https://github.com/datahenge/btu_scheduler"
 
 # NOTE: This version below will be picked up by "btu_daemon --version"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 
 [features]
@@ -20,6 +20,7 @@ email = [ "lettre", "lettre_email" ]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 anyhow = "1.0.57"
+camino = "1.0.5"
 cron = "0.9.0"
 chrono = "0.4"
 chrono-tz = "0.6.0"
