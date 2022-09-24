@@ -1,4 +1,4 @@
-name: Manually triggered workflow to build binaries
+name: Manual Workflow to build OS-specific binaries
 
 on:
   workflow_dispatch:
