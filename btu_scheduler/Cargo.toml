@@ -1,4 +1,5 @@
 # This is just the BTU Scheduler library.  No binaries defined here.
+
 [package]
 name = "btu_scheduler"
 authors = ["Brian Pond <brian@datahenge.com>"]
@@ -37,3 +38,20 @@ tracing = "0.1.34"
 tracing-subscriber = "0.3.11"
 ureq = { version = "2.3.1", features = ["json"] }
 uuid = { version = "0.8.2", features = ["serde", "v4"] }
+
+
+[package.metadata.deb]
+name = "btu_scheduler"
+maintainer = "Brian Pond <brian@datahenge.com>"
+copyright = "2022, Brian Pond <brian@datahenge.com>"
+license-file = ["../LICENSE.txt", "4"]
+extended-description = """\
+A set of 2 binary executables for the Background Tasks Unleashed \
+project for Frappe Framework."""
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+  ["target/release/btu", "usr/bin/", "755"],
+  ["target/release/btu-daemon", "usr/bin/", "755"],
+]

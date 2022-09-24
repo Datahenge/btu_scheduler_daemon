@@ -1,25 +1,42 @@
 ### Packaging for Debian
+Using a lovely Rust crate "cargo-deb", available on crates.io
 
-To create a Debian package:
+### Configuration
+Without a few extra tricks, you cannot build a Debian Package against a Workspace crate.
 
-```
-cargo deb
-```
+1. Choose an arbitrary crate in your workspace to "own" the Debian Package configuration.  I choose "btu_scheduler"
 
-First, you will get an error message like this:
-    
-    cargo-deb: This is a workspace with multiple packages, and there is no single package at the root.
-    Please specify package name with -p.
-    Available packages are: btu_cli, btu_daemon, btu_scheduler
-
-So instead use this syntax:
+2. Add this to the crate's Cargo.toml
 
 ```
-cargo deb -p btu_cli
-cargo deb -p btu_daemon
+
+[package.metadata.deb]
+name = "BTU Scheduler"
+maintainer = "Brian Pond <brian@datahenge.com>"
+copyright = "2022, Brian Pond <brian@datahenge.com>"
+license-file = ["../LICENSE.txt", "4"]
+extended-description = """\
+A simple subcommand for the Cargo package manager for \
+building Debian packages from Rust projects."""
+# depends = "$auto"
+# section = "utility"
+# priority = "optional"
+assets = [
+  ["target/release/btu", "usr/bin/", "755"],
+  ["target/release/btu-daemon", "usr/bin/", "755"],
+]
 ```
 
+### Building the Debian Package
+From the package root, execute 2 shell commands:
+```
+cargo build --release
+cargo deb -p btu_scheduler
+```
+
+### Installation
 To try and install it, do this:
+
 ```
 dpkg -i target/debian/btu_cli_0.3.3_amd64.deb
 ```

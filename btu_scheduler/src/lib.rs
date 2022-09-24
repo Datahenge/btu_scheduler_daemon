@@ -352,8 +352,15 @@ pub mod task_schedule {
 /// Call ERPNext REST API and acquire pickled Python function as bytes.
 fn get_pickled_function_from_web(task_id: &str, task_schedule_id: Option<&str>, app_config: &AppConfig) -> Result<Vec<u8>, String> {
 
-	let url: String = format!("http://{}:{}/api/method/btu.btu_api.endpoints.get_pickled_task",
+	let url: String;
+    if app_config.webserver_port == 443 {
+		url = format!("https://{}/api/method/btu.btu_api.endpoints.get_pickled_task",
+		app_config.webserver_ip);
+    }
+    else {
+		url = format!("http://{}:{}/api/method/btu.btu_api.endpoints.get_pickled_task",
 		app_config.webserver_ip, app_config.webserver_port);
+    }
 
 	let mut request = ureq::get(&url)
 		.set("Authorization", &app_config.webserver_token)
