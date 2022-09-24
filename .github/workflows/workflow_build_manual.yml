@@ -32,6 +32,12 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install cargo_deb
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-deb
+
       - name: Build Rust Binaries
         uses: actions-rs/cargo@v1
         with:
