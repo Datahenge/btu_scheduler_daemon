@@ -1,17 +1,10 @@
+
+# https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows
+
 name: Manual Workflow to build OS-specific binaries
 
 on:
-  workflow_dispatch:
-    inputs:
-      btu_version:
-        description: "BTU Semantic Version."
-        required: true
-      operating_system:
-        description: "Target OS"
-        required: true
-      tag:
-        description: "Tag of the release"
-        required: true
+  workflow_call:
 
 jobs:
   build_some_linux:
