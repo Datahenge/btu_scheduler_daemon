@@ -6,9 +6,11 @@ on:
       btu_version:
         description: "BTU Semantic Version."
         required: true
+        type: string
       tag:
         description: "Tag of the release"
         required: true
+        type: string
 
 jobs:
   call-ubuntu-20:
