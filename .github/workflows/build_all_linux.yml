@@ -20,9 +20,9 @@ jobs:
       btu_version: ${{ inputs.btu_version }}
       tag: ${{ inputs.tag }}
 
-  call-ubuntu-22:
-    uses: ./.github/workflows/workflow_build_manual.yml
-    with:
-      operating_system: "ubuntu-22.04"
-      btu_version: ${{ inputs.btu_version }}
-      tag: ${{ inputs.tag }}
+  #call-ubuntu-22:
+   # uses: ./.github/workflows/workflow_build_manual.yml
+    #with:
+     # operating_system: "ubuntu-22.04"
+      #btu_version: ${{ inputs.btu_version }}
+      #tag: ${{ inputs.tag }}
