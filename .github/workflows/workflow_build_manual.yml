@@ -30,11 +30,10 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
-      - name: Set env on trigger
+      - name: Set environment variables
         if: github.event_name == 'workflow_dispatch'
         run: |
           echo "BTU_VERSION=${{ github.event.inputs.btu_version }}" >> $GITHUB_ENV
-          echo "TARGET_OS=${{ github.event.inputs.operating_system }}" >> $GITHUB_ENV
           echo "INPUT_TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
 
       - name: Install stable toolchain
@@ -85,11 +84,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.INPUT_TAG }}
+          # tag_name: ${{ env.INPUT_TAG }}
           release_name: ${{ env.INPUT_TAG }}
           body: HQ ${{ env.INPUT_TAG }}
           draft: false
-          prerelease: true
+          # prerelease: true
 
       - name: Upload Scheduler daemon binary
         uses: actions/upload-release-asset@v1
