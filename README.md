@@ -23,11 +23,22 @@ Read [here](docs/why_the_btu.md) for more about why I needed to create this appl
 (*Note to Frappe Framework users: The BTU Scheduler daemon and CLI are -not- Python applications.  They are native Linux applications: 64-bit binary executables.  The source code was written in [The Rust Programming Language](https://www.rust-lang.org/).  This application coexists with the Frappe web server)*
 
 ----
-### Debian Package Installation
-(*development in-progress; coming soon*)
+### Option 1: Debian Package Installation
+
+1. Find the Debian package appropriate for your Linux distribution.
+2. Download to your Frappe/ERPNext server:
+```
+wget https://github.com/Datahenge/btu_scheduler_daemon/releases/download/v0.3.6/target.debian.btu_scheduler_0.3.6_amd64.deb .
+```
+3. Install:
+```
+apt install target.debian.btu_scheduler_0.3.6_amd64.deb
+```
 
  ----
-### Manual Installation
+### Option 2: Manual Installation
+If you are unable to install using the Debian packages, you can always install manually.  The BTU scheduler is just 2 binary executables + 1 configuration file (TOML format)
+
 1. Download the latest version from [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).  There are 2 binary applications:
 
   * `btu-daemon`:  Background daemon that interacts with Frappe BTU and [Python RQ](https://python-rq.org/).
@@ -100,14 +111,18 @@ webserver_token = "token abcdef123456789:abcdef123456789"
 ### Usage
 
 #### Testing
-To test the application, you may want to begin by running manually from a shell:
+To verify the versions you downloaded:
 ```
-/usr/local/bin/btu_scheduler_daemon
-# or
-./btu_scheduler_daemon
+btu --version
+btu-daemon --version
 ```
 
-The program runs indefinitely (unless it encounters a fatal error)\
+To run the daemon in the foreground:
+```
+btu-daemon
+```
+
+NOTE: The program runs indefinitely (unless it encounters a fatal error)\
 To exit manually, use the keys `CTRL+C`
 
 #### Production or Live environments
@@ -127,11 +142,11 @@ WantedBy=multi-user.target
 ### TODO:
 The following are some ideas I'm still working on:
 
-* Reads Task Schedules not only from Frappe DocType `BTU Task Schedule`, but optionally from JSON or TOML files.
+* Better installation process.
+* Teach the scheduler to read Task Schedules not only from Frappe DocType `BTU Task Schedule`, but optionally from JSON or TOML files.
 
-#### See also:
+#### See Also:
 https://github.com/Couragium/rsmq-async-rs
-
 
 ### License
 
