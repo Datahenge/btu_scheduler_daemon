@@ -1,0 +1,9 @@
+jobs:
+  call-ubuntu-20:
+    uses: ./.github/workflows/workflow-build-manual.yml
+    with:
+      operating_system: ubuntu-20.04
+  call-ubuntu-22:
+    uses: ./.github/workflows/workflow-build-manual.yml
+    with:
+      operating_system: ubuntu-22.04
