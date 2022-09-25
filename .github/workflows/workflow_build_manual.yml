@@ -6,14 +6,17 @@ on:
       btu_version:
         description: "BTU Semantic Version."
         required: true
+      operating_system:
+        description: "Target OS"
+        required: true
       tag:
         description: "Tag of the release"
         required: true
 
 jobs:
-  build_ubuntu_20:
-    name: Build binaries for Ubuntu 20.04
-    runs-on: ubuntu-20.04
+  build_some_linux:
+    name: Build binaries for a Linux operating system
+    runs-on: ${{ github.event.inputs.operating_system }}
     steps:
       - name: Show GLIBC
         run: ldd --version
@@ -24,8 +27,9 @@ jobs:
       - name: Set env on trigger
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "INPUT_TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
           echo "BTU_VERSION=${{ github.event.inputs.btu_version }}" >> $GITHUB_ENV
+          echo "TARGET_OS=${{ github.event.inputs.operating_system }}" >> $GITHUB_ENV
+          echo "INPUT_TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -66,7 +70,7 @@ jobs:
 
       - name: Prepare Debian archive
         run: |
-          export ARCHIVE_NAME_DEB=btu_scheduler_${{ env.BTU_VERSION }}_amd64.deb
+          export ARCHIVE_NAME_DEB=target/debian/btu_scheduler_${{ env.BTU_VERSION }}_amd64.deb
           echo "ARCHIVE_NAME_DEB=$ARCHIVE_NAME_DEB" >> $GITHUB_ENV
 
       - name: Create release
@@ -81,7 +85,7 @@ jobs:
           draft: false
           prerelease: true
 
-      - name: Upload scheduler daemon binary
+      - name: Upload Scheduler daemon binary
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
