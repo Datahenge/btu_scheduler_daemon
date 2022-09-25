@@ -1,19 +1,18 @@
-## BTU Scheduler
+## BTU Scheduler Daemon
 
 ### Purpose
+The purpose of this program is to create a Linux [daemon](https://en.wikipedia.org/wiki/Daemon_(computing)) that:
 
-The purpose of this program is to create a background daemon that:
-
-1. Stores scheduled tasks (*for now, Python functions living in Frappe and ERPNext*) as RQ Jobs in a Redis queue database.
-2. Listens on a Unix Domain Socket for schedule updates sent from web servers (*and thus, indirectly from web clients*)
-3. Periodically (e.g. every 15 minutes) performs a "full-refresh" of the entire BTU Task Schedule data into RQ.
-4. Very importantly, **enqueues** RQ jobs into the correct queues, at the correct times, based on the Schedules.  (*Redis Queue would be pretty boring without something to populate its queues; this is one such thing.*)
+1. Transforms `BTU Tasks` (*Python functions living in Frappe and ERPNext*) into [Python RQ Jobs](https://python-rq.org/), in a Redis queue database.
+2. Listens on a Unix Domain Socket for schedule updates from the [Frappe web server](https://frappeframework.com/).
+3. Periodically (e.g. every 15 minutes) performs a "full-refresh" of the entire `BTU Task Schedule` data into RQ.
+4. Based on `BTU Task Schedules`, *enqueues* RQ Jobs at the correct moment in time.
 
 ### Official Documentation
-The [Official Documentation](https://datahenge.github.io/btu_scheduler_daemon/) is hosted on a GitHub Pages Site.  All the markdown for that site is right here in this repository, in the `docs` directory.
+The [Official Documentation](https://datahenge.github.io/btu_scheduler_daemon/) is hosted on a GitHub Pages Site.  The markdown for that site is located in this GitHub repository, in the `docs` directory.
 
 ### Why did I make this?
-Read [here](docs/why_the_btu.md) for more about why I needed to create this application.
+The answer to that question is [here](docs/why_the_btu.md) in the Official Documentation.
 
 ### Prerequisites
 
@@ -25,7 +24,7 @@ Read [here](docs/why_the_btu.md) for more about why I needed to create this appl
 ----
 ### Option 1: Debian Package Installation
 
-1. Find the Debian package appropriate for your Linux distribution.
+1. Find the Debian package for your Linux distribution under [Releases](https://github.com/Datahenge/btu_scheduler_daemon/releases).
 2. Download to your Frappe/ERPNext server:
 ```
 wget https://github.com/Datahenge/btu_scheduler_daemon/releases/download/v0.3.6/target.debian.btu_scheduler_0.3.6_amd64.deb .
@@ -33,6 +32,10 @@ wget https://github.com/Datahenge/btu_scheduler_daemon/releases/download/v0.3.6/
 3. Install:
 ```
 apt install target.debian.btu_scheduler_0.3.6_amd64.deb
+```
+or alternately:
+```
+dpkg -i target.debian.btu_scheduler_0.3.6_amd64.deb
 ```
 
  ----
