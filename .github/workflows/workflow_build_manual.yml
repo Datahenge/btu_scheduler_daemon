@@ -66,8 +66,7 @@ jobs:
 
       - name: Prepare Debian archive
         run: |
-          strip target/debian/btu_scheduler_${{ env.INPUT_TAG }}_amd64.deb
-          export ARCHIVE_NAME_DEB=btu_scheduler_${{ env.INPUT_TAG }}_amd64.deb
+          export ARCHIVE_NAME_DEB=btu_scheduler_${{ env.BTU_VERSION }}_amd64.deb
           echo "ARCHIVE_NAME_DEB=$ARCHIVE_NAME_DEB" >> $GITHUB_ENV
 
       - name: Create release
