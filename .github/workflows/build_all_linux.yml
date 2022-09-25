@@ -1,9 +1,26 @@
+name: Create Linux Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      btu_version:
+        description: "BTU Semantic Version."
+        required: true
+      tag:
+        description: "Tag of the release"
+        required: true
+
 jobs:
   call-ubuntu-20:
     uses: ./.github/workflows/workflow-build-manual.yml
     with:
       operating_system: ubuntu-20.04
+      btu_version: ${{ inputs.btu_version }}
+      tag: ${{ inputs.tag }}
+
   call-ubuntu-22:
     uses: ./.github/workflows/workflow-build-manual.yml
     with:
       operating_system: ubuntu-22.04
+      btu_version: ${{ inputs.btu_version }}
+      tag: ${{ inputs.tag }}
