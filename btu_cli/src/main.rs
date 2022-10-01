@@ -191,9 +191,6 @@ fn cli_btu_test_pickler(app_config: &AppConfig, debug_mode: bool) {
         url = format!("http://{}:{}/api/method/btu.btu_api.endpoints.test_function_ping_now_bytes",
                       app_config.webserver_ip, app_config.webserver_port);
     }
-    if debug_mode {
-        println!("Target URL = {}", url);
-    }
 
     let mut request = ureq::get(&url)
         .set("Authorization", &app_config.webserver_token)
@@ -205,18 +202,20 @@ fn cli_btu_test_pickler(app_config: &AppConfig, debug_mode: bool) {
     }
 
     if debug_mode {
+        println!("Target URL = {}", url);
         println!("Request = {:?}", request.request_url());
     }
 
     let resp = request.call().unwrap();
 
     if debug_mode {
-        println!("Response Status = {:?}", resp.status());
+        println!("\nResponse Status = {:?}", resp.status());
         println!("Response = {:?}", resp);
+        println!("Response Headers Names = {:?}\n", resp.headers_names());
     }
 
-    assert!(resp.has("Content-Length"));  // will panic if no Content Length.
-    let len = resp.header("Content-Length")
+    assert!(resp.has("content-length"));  // will panic if no Content Length.
+    let len = resp.header("content-length")
         .and_then(|s| s.parse::<usize>().ok()).unwrap();
 
     let mut bytes: Vec<u8> = Vec::with_capacity(len);
