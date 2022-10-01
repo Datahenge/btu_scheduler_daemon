@@ -8,6 +8,7 @@ use mysql::PooledConn;
 use mysql::prelude::Queryable;
 use serde::Deserialize;
 
+// The following declarations are critical, and determine what Modules are part of this crate.
 pub mod btu_cron;
 pub mod config;
 pub mod errors;
@@ -15,7 +16,8 @@ pub mod logging;
 pub mod rq;
 pub mod scheduler;
 
-#[cfg(feature = "email")]
+// To use this feature, build like this:  `cargo build --features email-feat`
+#[cfg(feature = "email-feat")]
 pub mod email;
 
 mod tests;

@@ -10,6 +10,8 @@ rustup update stable
 The GNU C library (glibc) is the GNU implementation of the standard C library. Rust depends greatly on this library.
 Depending on what OS you build a Rust program, your binary will be required to link to a particular version of glibc.
 
+https://doc.rust-lang.org/rustc/platform-support.html
+
 #### A real world example:
 On January 9th 2022, I built `btu` and `btu-daemon` on Debian 11 (Bullseye).  Then I deployed to a Debian 10 (Buster) environment.  I immediately encountered problems with `glibc`.
 
@@ -36,7 +38,8 @@ However:
 
 So...I decided to use **GitHub Actions**.  Which is kind of like doing your own Docker images and Bash scripting.
 
-Except the scripting and "glue" work has already been done for me.  So it's (*theoretically*) less work.
+Except the scripting and "glue" work has already been done for me.  So it's (*theoretically*) less work.  But not really, because there's
+quite a large learning curve for GitHub Actions.
 
 ## GitHub Actions
 

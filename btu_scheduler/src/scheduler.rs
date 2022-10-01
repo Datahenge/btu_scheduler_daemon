@@ -8,7 +8,11 @@ use chrono::NaiveDateTime;
 use redis::{self, Commands, RedisError};
 use tracing::{trace, debug, info, warn, error, span, Level};
 
+#[cfg(feature = "email-feat")]
+use crate::email;
+#[cfg(feature = "email-feat")]
 use crate::email::{BTUEmail, make_email_body_preamble};
+
 use crate::{btu_cron, config, rq};
 use crate::task_schedule::{BtuTaskSchedule, read_btu_task_schedule};
 
@@ -324,8 +328,15 @@ fn fetch_task_schedules_ready_for_rq(app_config: &config::AppConfig, sched_befor
 	// rq_print_scheduled_tasks(&app_config);
 
 	debug!("Reviewing the 'Next Execution Times' for each Task Schedule in Redis...");
-	let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish connection with Python RQ database server.");
-	
+
+	// Someday, I can make this better, with RFC 3137, let-else statements
+	// https://github.com/rust-lang/rust/issues/87335
+	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config);
+	if redis_conn.is_none() {
+		return Vec::new();  // If cannot connect to Redis, do not panic the thread.  Instead, return an empty Vector.
+	}
+	let mut redis_conn: redis::Connection = redis_conn.unwrap();
+
 	// TODO: As per Redis 6.2.0, the command 'zrangebyscore' is considered deprecated.
 	// Please prefer using the ZRANGE command with the BYSCORE argument in new code.
 	let redis_result: Result<Vec<String>, redis::RedisError> = redis_conn.zrangebyscore(RQ_KEY_SCHEDULED_TASKS, 0, sched_before_unix_time);
@@ -366,6 +377,7 @@ pub fn check_and_run_eligible_task_schedules(app_config: &config::AppConfig, int
 		info!("Time to make the donuts! (enqueuing Redis Job '{}' for immediate execution)", task_schedule_instance.task_schedule_id);
 		match run_immediate_scheduled_task(app_config, task_schedule_instance, internal_queue) {
 			Ok(_) => {
+				#[cfg(feature = "email-feat")]  // Only compile this code when email feature is enabled:
 				if app_config.email_when_queuing {
 					// Send emails that mention the Task was enqueued.  This is useful for debugging or building confidence in the BTU.
 					debug!("Attempting to send an email about this Task...");
