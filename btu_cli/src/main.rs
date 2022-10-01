@@ -210,7 +210,12 @@ fn cli_btu_test_pickler(app_config: &AppConfig, debug_mode: bool) {
 
     let resp = request.call().unwrap();
 
-    assert!(resp.has("Content-Length"));
+    if debug_mode {
+        println!("Response Status = {:?}", resp.status());
+        println!("Response = {:?}", resp);
+    }
+
+    assert!(resp.has("Content-Length"));  // will panic if no Content Length.
     let len = resp.header("Content-Length")
         .and_then(|s| s.parse::<usize>().ok()).unwrap();
 
