@@ -33,8 +33,7 @@ In regular ERPNext...
 
 The Python code to-be-executed (Tasks), and the cron schedules (Task Schedules), are owned by my Frappe application: [*Background Tasks Unleashed*](https://github.com/Datahenge/btu).
 
-**Summary**:
-
+Summary:
   * Tasks and Schedules are stored in Frappe DocTypes (with persistent MySQL tables).  I consider these records to be the ["The Single Source of Truth"](https://en.wikipedia.org/wiki/Single_Source_of_Truth).
   * Via their browser, website users can edit Tasks and Schedules.  They can also review execution Logs (or receive them automatically via email) to understand precisely what happened when a Tasks executed.
   * Tasks and Schedules combine to become Jobs in [Python RQ](https://python-rq.org/), which can be be processed by worker threads.
