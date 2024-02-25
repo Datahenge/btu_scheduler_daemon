@@ -123,7 +123,8 @@ fn test_configuration_file() {
     let my_dispatch = Dispatch::new(my_subscriber);
     tracing::dispatcher::with_default(&my_dispatch, || {
 
-        let _ = APP_CONFIG.lock().unwrap();  // Lock APP_CONFIG for a moment, to populate some immutable variables.
+        // NOTE: I previous had '_', but the compiler actually wants a named variable, as of February 25th 2024.
+        let _foo = APP_CONFIG.lock().unwrap();  // Lock APP_CONFIG for a moment, to populate some immutable variables.
 
     });
 }

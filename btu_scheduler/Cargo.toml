@@ -17,7 +17,8 @@ version = "0.3.7"
 edition = "2021"
 
 [features]
-email-feat = [ "lettre", "lettre_email" ]
+# email-feat = [ "lettre", "lettre_email" ]
+# email-feat = [ "lettre" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
@@ -26,9 +27,8 @@ camino = "1.0.5"
 cron = "0.9.0"
 chrono = "0.4"
 chrono-tz = "0.6.0"
-lettre = { version = "0.9.6", optional = true}
-lettre_email = { version = "0.9.4", optional = true}
-mysql = "22.1.0"
+# lettre = { version = "0.10.4", optional = true, features = ["rustls-tls"]}
+mysql = "23.0.1"
 redis = "0.21.4"
 regex = "1.5.5"
 serde = { version = "1.0.130", features = ["derive"] }

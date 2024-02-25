@@ -170,7 +170,7 @@ pub fn tz_cron_to_utc_datetimes(cron_expression_string: &str,
 	for utc_datetime in schedule.after(&from_utc_datetime.unwrap_or(actual_utc)).take(*number_of_results) {
 
 		// This logic acquire the exact same Hour:Minute, but in local time.
-		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp(utc_datetime.timestamp(), 0);
+		let naive_datetime: NaiveDateTime = NaiveDateTime::from_timestamp_opt(utc_datetime.timestamp(), 0).unwrap();
 		let tz_aware = cron_timezone.from_local_datetime(&naive_datetime).unwrap();
 		let new_utc_datetime: DateTime<Utc> = DateTime::<Utc>::from_utc(tz_aware.naive_utc(), Utc);
 

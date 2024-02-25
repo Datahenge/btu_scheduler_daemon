@@ -8,7 +8,7 @@
 #[cfg(test)]
 mod tests {
 	
-	use chrono::{DateTime, NaiveDateTime, Utc};
+	use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 	use crate::btu_cron::cron_str_to_cron_str7;
 	use crate::btu_cron::{tz_cron_to_utc_datetimes};
 	use crate::config::AppConfig;
@@ -68,7 +68,7 @@ mod tests {
 		use chrono::TimeZone;
 
 		let local_timezone = chrono_tz::America::Los_Angeles;
-		let starting_at_utc_datetime: DateTime<Utc> = Utc.ymd(2021, 12, 25).and_hms(0, 0, 1);
+		let starting_at_utc_datetime: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 12, 25, 0, 0, 1).unwrap();
 
 		let number_of_results: usize = 3;  // We want the first 3 results back.
 
@@ -81,9 +81,9 @@ mod tests {
 		// There is an 8-hour difference between Los Angeles and UTC in December.
 		// Therefore, with the cron string above, the expected results begin at 9AM UTC.
 		let vec_utc_expected = vec![
-			Utc.ymd(2021, 12, 25).and_hms(9, 0, 0),		// `2021-12-25T09:00:00Z`
-			Utc.ymd(2021, 12, 25).and_hms(9, 10, 0),    // `2021-12-25T09:10:00Z`
-			Utc.ymd(2021, 12, 25).and_hms(9, 20, 0)     // `2021-12-25T09:20:00Z`
+			Utc.with_ymd_and_hms(2021, 12, 25, 9, 0, 0).unwrap(),		// `2021-12-25T09:00:00Z`
+			Utc.with_ymd_and_hms(2021, 12, 25, 9, 10, 0).unwrap(),    // `2021-12-25T09:10:00Z`
+			Utc.with_ymd_and_hms(2021, 12, 25, 9, 20, 0).unwrap()     // `2021-12-25T09:20:00Z`
 		];
 		assert_eq!(vec_utc_expected, vec_utc_calculated);
 	}
@@ -94,7 +94,7 @@ mod tests {
 		use chrono::TimeZone;
 
 		let local_timezone = chrono_tz::America::Los_Angeles;
-		let starting_at_utc_datetime: DateTime<Utc> = Utc.ymd(2021, 12, 25).and_hms(0, 0, 1);
+		let starting_at_utc_datetime: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 12, 25, 0, 0, 1).unwrap();
 		let number_of_results: usize = 3;  // We want the first 3 results back.
 
 		// Every 30 minutes starting at 12:00:01 am on December 25th, 2021.
@@ -106,9 +106,9 @@ mod tests {
 		// There is an 8-hour difference between Los Angeles and UTC in December.
 		// Therefore, with the cron string above, the expected results begin at 9AM UTC.
 		let vec_utc_expected = vec![
-			Utc.ymd(2021, 12, 25).and_hms(0, 30, 0),  // `2021-12-25T00:30:00Z`
-			Utc.ymd(2021, 12, 25).and_hms(1, 0, 0),   // `2021-12-25T01:00:00Z`
-			Utc.ymd(2021, 12, 25).and_hms(1, 30, 0)   // `2021-12-25T01:30:00Z`
+			Utc.with_ymd_and_hms(2021, 12, 25, 0, 30, 0).unwrap(),  // `2021-12-25T00:30:00Z`
+			Utc.with_ymd_and_hms(2021, 12, 25, 1, 0, 0).unwrap(),   // `2021-12-25T01:00:00Z`
+			Utc.with_ymd_and_hms(2021, 12, 25, 1, 30, 0).unwrap()   // `2021-12-25T01:30:00Z`
 		];
 		assert_eq!(vec_utc_expected, vec_utc_calculated);
 	}
@@ -122,7 +122,7 @@ mod tests {
 		
 		let job_id = "Job12345".to_string();
 		let unix_timestamp: i64 = 1638424800;
-		let datetime_naive = NaiveDateTime::from_timestamp(unix_timestamp, 0);
+		let datetime_naive: NaiveDateTime = NaiveDateTime::from_timestamp_opt(unix_timestamp, 0).unwrap();
 		let datetime_utc: DateTime<Utc> = DateTime::from_utc(datetime_naive, Utc);
 
 		// Create a new struct: RQScheduledTask
@@ -178,7 +178,7 @@ mod tests {
 		// min  | hour | day of month  | month  | day of week		
 		let expression_string: &str = "32 3 * * Sun-Wed,Sat";
 		let timezone_pacific = chrono_tz::America::Los_Angeles;
-		let starting_at_utc_datetime: DateTime<Utc> = Utc.ymd(2021, 12, 25).and_hms(0, 0, 1);
+		let starting_at_utc_datetime: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 12, 25, 0, 0, 1).unwrap();
 
 		let _this_result = tz_cron_to_utc_datetimes(expression_string, timezone_pacific, Some(starting_at_utc_datetime), &12);
 	}

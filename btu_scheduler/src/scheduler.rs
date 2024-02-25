@@ -62,7 +62,7 @@ impl RQScheduledTask {
 	pub fn from_tsik(tsik: TSIK) -> RQScheduledTask {
  
 		// Create a NaiveDateTime from the Unix timestamp
- 		let next_naive = NaiveDateTime::from_timestamp(tsik.next_unix_datetime(), 0);
+ 		let next_naive = NaiveDateTime::from_timestamp_opt(tsik.next_unix_datetime(), 0).unwrap();
     	// Create a normal DateTime from the NaiveDateTime
  		let next_utc: DateTime<Utc> = DateTime::from_utc(next_naive, Utc);
 		// Build a new struct
@@ -105,7 +105,7 @@ fn _from_tuple_to_rqscheduledtask(tuple: &(String, String)) -> Result<RQSchedule
 		There is no reason to consume the tuple; so accepting it as a reference.
 	*/
 	let timestamp: i64 = tuple.1.parse::<i64>().unwrap();  // coerce the second String into an i64, using "turbofish" syntax
-	let utc_datetime:  DateTime<Utc> = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(timestamp, 0), Utc);
+	let utc_datetime:  DateTime<Utc> = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp_opt(timestamp, 0).unwrap(), Utc);
 	/*
 	let local_time_zone: chrono_tz::Tz = match tuple.2.parse() {
 		Ok(v) => v,

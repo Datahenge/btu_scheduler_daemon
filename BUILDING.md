@@ -7,10 +7,12 @@ musl-dev
 sudo apt-get install musl-tools
 ```
 
-
 #### Without any Dynamic Libraries
 
-This avoids any libc dependencies:
+This avoids certain libc dependencies.
+However, it also results in problems with OpenSSL.
+
+
 ```
 cargo build --target x86_64-unknown-linux-musl
 ```

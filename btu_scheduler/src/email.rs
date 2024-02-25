@@ -1,11 +1,12 @@
 // email.rs
 
+// https://github.com/lettre/lettre/discussions
+
 use anyhow::{Context as AHContext, Result as AHResult};
 use chrono::{SecondsFormat, Utc};
-use lettre::{SmtpClient, SmtpTransport, Transport};
-use lettre::smtp::authentication::Credentials;
-use lettre::smtp::response::Response;
-use lettre_email::{Email, EmailBuilder};
+use lettre::{transport::smtp::authentication::Credentials, Message, SmtpTransport, Transport};
+// use lettre::smtp::response::Response;
+// use lettre_email::{Email, EmailBuilder};
 use tracing::{trace, debug, info, warn, error, span, Level};
 use crate::config::AppConfig;
 
@@ -18,17 +19,18 @@ pub struct BTUEmail {
     body: String
 }
 
-pub fn send_email(app_config: &AppConfig, subject: &str, body: &str) -> AHResult<lettre::smtp::response::Response> {
+pub fn send_email(app_config: &AppConfig, subject: &str, body: &str) -> AHResult<()> {
     
-    let mut transport = make_transport_from_config(app_config)?;
-    // Transport requires mutable ownership; not sure why.
-    // We need to take ownership of 'email', because EmailBuilder wants to own its arguments.
+    let mailer = make_mailer_from_config(app_config)?;
 
     // Need to create a semi-colon separated string of To Email addresses.
     let mut to_addresses = String::new();
     for each in app_config.email_addresses.as_ref().unwrap() {
         to_addresses += &format!("{};", each);
     }
+
+    // This seems very silly, looping over the entire set of functions.
+    // But Lettre 0.10 seems a step backwards, and I don't have time to fix
 
 	let btu_email = BTUEmail {
         from: app_config.email_address_from.as_ref().unwrap().to_owned(),
@@ -37,24 +39,32 @@ pub fn send_email(app_config: &AppConfig, subject: &str, body: &str) -> AHResult
         body: body.to_owned()
     };
 
-    // Create an Email Builder.
-    let mut email_builder = EmailBuilder::new()
-        .from(btu_email.from)
-        .subject(btu_email.subject)
-        .html(btu_email.body);
-
     // Add multiple To Address, if required.
-    for each in btu_email.to {
-        email_builder = email_builder.to(each);
-    }
+    for each_recipient in btu_email.to {
+
+        let this_body = body;
+        // Create an Email Builder.
+        let email: Message = Message::builder()
+        .from(btu_email.from.parse().unwrap())  // parse the String into a Mailbox
+        .to(each_recipient.parse().unwrap())
+        .subject(&btu_email.subject)
+        .body(this_body.to_owned())
+        .unwrap();
+
+        match mailer.send(&email) {
+            Ok(_) => {
+                println!("Email sent successfully!");
+            }
+            Err(e) => panic!("Could not send email: {:?}", e),
+        }
     
-    let email: Email = email_builder.build()?;
-    let response = transport.send(email.into())?;
-    Ok(response)
+    }
+
+    Ok(())
 }
 
 
-pub fn make_transport_from_config(app_config: &AppConfig) -> AHResult<SmtpTransport> {
+pub fn make_mailer_from_config(app_config: &AppConfig) -> AHResult<SmtpTransport> {
 
     if app_config.email_host_name.is_none() {
         panic!("Configuration file is missing an Email Host Name.");
@@ -66,13 +76,22 @@ pub fn make_transport_from_config(app_config: &AppConfig) -> AHResult<SmtpTransp
         panic!("Configuration file is missing an Email Password.");
     }
 
-    return make_transport(
-        app_config.email_host_name.as_ref().unwrap(),
-        app_config.email_account_name.as_ref().unwrap().to_owned(),
-        app_config.email_account_password.as_ref().unwrap().to_owned()
-    );
+    let this_email_account: String = app_config.email_account_name.as_ref().unwrap().clone();
+    let this_email_password: String = app_config.email_account_password.as_ref().unwrap().clone();
+    let this_email_host: String = app_config.email_account_password.as_ref().unwrap().clone();
+
+    let creds = Credentials::new(this_email_account, this_email_password);
+
+    // Open a remote connection to mail server.
+    let mailer = SmtpTransport::relay(&this_email_host)
+        .unwrap()
+        .credentials(creds)
+        .build();
+
+    Ok(mailer)
 }
 
+/*
 fn make_transport(mail_host: &str, mail_username: String, mail_password: String) -> AHResult<SmtpTransport> {
 	let transport: SmtpTransport = SmtpClient::new_simple(&mail_host)
 		.unwrap()
@@ -80,6 +99,7 @@ fn make_transport(mail_host: &str, mail_username: String, mail_password: String)
 		.transport();
 	Ok(transport)
 }
+*/
 
 
 pub fn make_email_body_preamble(app_config: &AppConfig) -> String {
