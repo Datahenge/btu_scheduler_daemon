@@ -1,6 +1,6 @@
 [package]
 name = "btu_cli"
-version = "0.3.7"
+version = "0.3.8"
 authors = ["Brian Pond <brian@datahenge.com"]
 edition = "2021"
 license = "MIT OR Apache-2.0"

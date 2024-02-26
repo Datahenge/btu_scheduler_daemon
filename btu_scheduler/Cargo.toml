@@ -13,7 +13,7 @@ repository = "https://github.com/datahenge/btu_scheduler"
 rust-version = "1.64"
 
 # NOTE: This version below will be picked up by "btu_daemon --version"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 
 [features]
