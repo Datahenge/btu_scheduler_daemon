@@ -275,12 +275,12 @@ pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &B
 	// Establish connection to Redis, and perform a ZADD
 	// Someday, I can make this better, with RFC 3137, let-else statements
 	// https://github.com/rust-lang/rust/issues/87335
-	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config);
+	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config, false);
 	if redis_conn.is_none() {
 		return ();  // If cannot connect to Redis, do not panic the thread.  Instead, return an empty Vector.
 	}
 
-	let mut redis_conn: redis::Connection = redis_conn.unwrap();
+	let mut redis_conn: redis::Connection = redis_conn.unwrap();  // shadow the previous variable assignment
 	let some_result: Result<std::primitive::u32, RedisError> = redis_conn.zadd(
 		RQ_KEY_SCHEDULED_TASKS,
 		rq_scheduled_task.to_tsik(),
@@ -302,14 +302,14 @@ pub fn add_task_schedule_to_rq(app_config: &config::AppConfig, task_schedule: &B
 				let message3: &str =  &format!("Next Execution Time (UTC) for Task Schedule {} = {}",
 					                           task_schedule.id,
 											   rq_scheduled_task.next_datetime_utc.to_rfc3339());
-				info!(message1, message2, message3);
+				debug!(message1, message2, message3);
 			}
 			else {
 				// Otherwise, just print in UTC.	
 				let message3: &str =  &format!("Next Execution Time (UTC) for Task Schedule {} = {}",
 				                               task_schedule.id,
 											   rq_scheduled_task.next_datetime_utc.to_rfc3339());
-				info!(message1, message3);
+				debug!(message1, message3);
 			}
 		},
 		Err(error) => {
@@ -338,8 +338,9 @@ fn fetch_task_schedules_ready_for_rq(app_config: &config::AppConfig, sched_befor
 
 	// Someday, I can make this better, with RFC 3137, let-else statements
 	// https://github.com/rust-lang/rust/issues/87335
-	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config);
+	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config, false);
 	if redis_conn.is_none() {
+		debug!("In lieu of a Redis Connection, returning an empty vector.");
 		return Vec::new();  // If cannot connect to Redis, do not panic the thread.  Instead, return an empty Vector.
 	}
 	let mut redis_conn: redis::Connection = redis_conn.unwrap();
@@ -411,7 +412,11 @@ pub fn run_immediate_scheduled_task(app_config: &config::AppConfig,
 									internal_queue: &mut VecDeque<String>) -> Result<(), anyhow::Error> {
 
 	// 0. First remove the Task from the Schedule (so it doesn't get executed twice)
-	let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+	if rq::get_redis_connection(app_config, true).is_none() {
+		warn!("Early exit from run_immediate_scheduled_task(); cannot establish a connection to Redis database.");
+		return Ok(());  // If cannot connect to Redis, do not panic the thread.  Instead, return an empty Vector.
+	}
+	let mut redis_conn = rq::get_redis_connection(app_config, true).unwrap();
 	let redis_result: u32 = redis_conn.zrem(RQ_KEY_SCHEDULED_TASKS, task_schedule_instance.to_tsik())?;
 	
 	if redis_result != 1 {
@@ -461,8 +466,9 @@ pub fn rq_get_scheduled_tasks(app_config: &config::AppConfig) -> VecRQScheduledT
 
 	// Someday, I can make this better, with RFC 3137, let-else statements
 	// https://github.com/rust-lang/rust/issues/87335
-	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config);
+	let redis_conn: Option<redis::Connection> = rq::get_redis_connection(app_config, false);
 	if redis_conn.is_none() {
+		debug!("In lieu of a Redis Connection, returning an empty vector.");
 		return Vec::new().into();  // If cannot connect to Redis, do not panic the thread.  Instead, return an empty Vector.
 	}
 
@@ -485,7 +491,7 @@ pub fn rq_cancel_scheduled_task(app_config: &config::AppConfig, task_schedule_id
 	// are not just Task Schedule ID's.  The Unix Time is a suffix.  Removing members now requires some "starts_with" logic.
 
 	// First, list all the keys using 'zrange btu_scheduler:task_execution_times 0 -1'
-	let mut redis_conn = rq::get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");	
+	let mut redis_conn = rq::get_redis_connection(app_config, true).expect("Unable to establish a connection to Redis.");	
 	let all_task_schedules: redis::RedisResult<Vec<String>> = redis_conn.zrange(RQ_KEY_SCHEDULED_TASKS, 0, -1);
 	if all_task_schedules.is_err() {
 		return Err(all_task_schedules.err().unwrap().to_string());

@@ -168,10 +168,16 @@ fn main() {
     /* The statement below is basically a sanity check.  If we cannot successfully connnect to Redis RQ on startup?
        The daemon cannot do anything, and should terminate.  This can be tempered with a Restart clause in Systemd Unit Files,
        to handle race conditions on server boot.
+
+       February 25th 2024 - Allow the app to startup without failing on these conditions.
     */
-    if rq::get_redis_connection(&temp_app_config).is_none() {
-        error!("Cannot initialize daemon without Redis RQ connection; closing now.");
-        std::process::exit(1);
+    if rq::get_redis_connection(&temp_app_config, false).is_none() {
+        if temp_app_config.startup_without_database_connections {
+            warn!("Application is configured to startup without establishing a connection to Redis.");
+        } else {
+            error!("Cannot initialize daemon without an active Redis RQ connection; closing now.");
+            std::process::exit(1);
+        }
     }
 
     // Another sanity check; try to connect to SQL before going any further.
@@ -180,8 +186,10 @@ fn main() {
         },
         Err(error) => {
             error!("{}", error);
-            error!("Cannot initialize daemon without a connection to Frappe MySQL database; closing now.");
-            std::process::exit(1);    
+            error!("Unable to establish a connection Frappe MySQL database.");
+            if ! temp_app_config.startup_without_database_connections {
+                std::process::exit(1);
+            }
         }
     }
 
@@ -200,6 +208,7 @@ fn main() {
     let queue_counter_1 = Arc::clone(&internal_queue);
     let thread_handle_1 = thread::Builder::new().name("1_Internal_Queue".to_string()).spawn(move || {
         loop {
+            debug!("Thread 1: Reading from Internal Queue...");
             // Attempt to acquire a lock...
             if let Ok(mut unlocked_queue) = queue_counter_1.lock() {
                 // ...lock acquired.
@@ -217,7 +226,7 @@ fn main() {
                                     error!("Error: Unable to find SQL record for BTU Task Schedule = '{}'\n(verify BTU Configuration has a Time Zone)", next_task_schedule_id);
                                 }                              
                             }
-                            debug!("{} values remain in internal queue.", (*unlocked_queue).len());
+                            trace!("{} values remain in internal queue.", (*unlocked_queue).len());
                         },
                         None => {
                         }
@@ -249,6 +258,7 @@ fn main() {
 
         let mut stopwatch: Instant = Instant::now();  // used to keep track of time elapsed.
         loop {
+            debug!("Thread 2: Attempting to Auto-Refill the Internal Queue...");
             let elapsed_seconds = stopwatch.elapsed().as_secs();  // calculate elapsed seconds since last Queue Repopulate
             // Check if enough time has passed...
             if elapsed_seconds > full_refresh_internal_secs.into() {  // Dev Note: The 'into()' handles conversion to u64
@@ -294,8 +304,9 @@ fn main() {
     let queue_counter_3 = Arc::clone(&internal_queue);
     let thread_handle_3 = thread::Builder::new().name("3_Scheduler".to_string()).spawn(move || {  // this 'move' is required to own variable 'scheduler_polling_interval'
         thread::sleep(Duration::from_secs(10)); // One-time delay of execution: this gives the other Threads a chance to initialize.
-        trace!("--> Thread '3_Scheduler' launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
+        info!("--> Thread '3_Scheduler' has launched.  Eligible RQ Jobs will be placed into RQ Queues at the appropriate time.");
         loop {
+            debug!("Thread 3: Attempting to add new Jobs to RQ...");
             // This thread requires a lock on the Internal Queue, so that after a Task runs, it can be rescheduled.
             let stopwatch: Instant = Instant::now();
             if let Ok(mut unlocked_queue) = queue_counter_3.lock() {
@@ -332,13 +343,25 @@ fn main() {
 
     info!("Main Thread started");
 
+    // TODO: Would be lovely if the main thread knew about the child threads status?
+    // https://stackoverflow.com/questions/35883390/how-to-check-if-a-thread-has-finished-in-rust
+
     // Immediately on startup, Scheduler daemon should populate its internal queue with all BTU Task Schedule identifiers.
     let queue_counter_temp = Arc::clone(&internal_queue);
     {
         // Note: using an explicit scope here, to ensure the lock is dropped immediately afterwards, so new threads can take it.
         let mut unlocked_queue = queue_counter_temp.lock().unwrap();
-        let rows_added = queue_full_refill(&mut unlocked_queue).unwrap();
-        info!("Filled internal queue with {} Task Schedule identifiers.", rows_added);
+
+        match queue_full_refill(&mut unlocked_queue) {
+            Ok(rows_added) => {
+                info!("Filled internal queue with {} Task Schedule identifiers.", rows_added);                
+            },
+            Err(error) => {
+                warn!("{}", error);
+                warn!("Unable to establish a connection Frappe MySQL database.");
+                // std::process::exit(1);    
+            }
+        }
         drop(unlocked_queue);
     }
 

@@ -2,10 +2,10 @@
 name = "btu_cli"
 version = "0.3.7"
 authors = ["Brian Pond <brian@datahenge.com"]
+edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "CLI application for the BTU Scheduler."
 readme = "README.md"
-edition = "2021"
 
 [[bin]]
 name = "btu"

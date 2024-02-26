@@ -290,7 +290,13 @@ pub mod task_schedule {
 	*/
 	pub fn read_btu_task_schedule(app_config: &config::AppConfig, task_schedule_id: &str) -> Option<BtuTaskSchedule> {
 
-		let mut sql_conn: PooledConn = config::get_mysql_conn(&app_config).unwrap();  // create a connection to the MariaDB database.
+		// Can finally does this as of Rust 1.65
+		let Ok(mut sql_conn) = config::get_mysql_conn(&app_config) else {
+			println!("func 1 returned None");
+			return None;
+		};
+
+		// let mut sql_conn: PooledConn = config::get_mysql_conn(&app_config).unwrap();  // create a connection to the MariaDB database.
 
 		// 2. Run query, and map result into a new Result<Option<BtuTaskSchedule>>
 		//    TODO: Investigate resolving SQL injection.  Probably means finding a helpful 3rd party crate.

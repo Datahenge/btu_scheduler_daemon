@@ -81,7 +81,7 @@ impl RQJob {
 	pub fn save_to_redis(&self, app_config: &AppConfig) -> () {
 		// This function was a lot more work than expected.  Even though I'm takig a reference to the struct,
 		// I have to explicitely clone() all Strings.  And for Option<String>, explicitely as_ref()
-		let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+		let mut redis_conn = get_redis_connection(app_config, true).expect("Unable to establish a connection to Redis.");
 
 		let values: Vec<(&'static str, String)> =  vec![
 			( "status", option_string_to_owned(&self.status) ),
@@ -159,7 +159,7 @@ fn bytes_to_hex_string(bytes: &Vec<u8>) -> String {
 
 pub fn enqueue_job_immediate(app_config: &AppConfig, job_id: &str) -> Result<String, std::io::Error> {
 
-	let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+	let mut redis_conn = get_redis_connection(app_config, true).expect("Unable to establish a connection to Redis.");
 	let job = read_job_by_id(app_config, job_id)?;
 
 	// 1. Add the queue name to 'rq:queues'.
@@ -188,7 +188,7 @@ pub fn exists_job_by_id(app_config: &AppConfig, job_id: &str) -> bool {
 		Given a potential RQ Job ID, return a boolean True if it exists in the RQ database.
 	*/
 	let key: String = format!("{}:{}", RQ_JOB_PREFIX, job_id);
-	let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+	let mut redis_conn = get_redis_connection(app_config, true).expect("Unable to establish a connection to Redis.");
 	let result: Result<HashMap<String, Vec<u8>>, RedisError> =  redis_conn.hgetall(key);
 
 	match result {
@@ -207,25 +207,33 @@ pub fn exists_job_by_id(app_config: &AppConfig, job_id: &str) -> bool {
 }
 
 
-pub fn get_redis_connection(app_config: &AppConfig) -> Option<redis::Connection> {
+pub fn get_redis_connection(app_config: &AppConfig, panic_on_error: bool) -> Option<redis::Connection> {
 	// Returns a Redis Connection, or None.
 	let client: redis::Client = redis::Client::open(format!("redis://{}:{}/", app_config.rq_host, app_config.rq_port)).unwrap();
 	if let Ok(result) = client.get_connection() {
 		Some(result)
 	}
 	else {
-		error!("Unable to establish a connection to Redis Server at host {}:{}",
-			app_config.rq_host,
-			app_config.rq_port
-		);
+		let message_string = format!("Unable to establish a connection to Redis Server at host {0}:{1}",
+		                             app_config.rq_host,
+		                             app_config.rq_port);
+		if panic_on_error == true {
+			panic!("{}", message_string);
+		}
+		error!(message_string);
 		None
 	}
 }
 
 
 pub fn get_all_job_ids(app_config: &AppConfig) -> Option<Vec<String>> {
-	let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
-	match redis_conn.keys("rq:job:*") {
+
+	let redis_conn = get_redis_connection(app_config, true);
+	if redis_conn.is_none() {
+		warn!("get_all_job_ids() - Unable to esablish a Redis connection.");
+		return None
+	}
+	match redis_conn.unwrap().keys("rq:job:*") {
 		Ok(keys) => {
 			Some(keys)
 		},
@@ -272,7 +280,11 @@ pub fn hashmap_value_to_utcdatetime(hashmap: &HashMap<String, Vec<u8>>, key: &st
 
 pub fn read_job_by_id(app_config: &AppConfig, job_id: &str) -> Result<RQJob, std::io::Error> {
 
-	let mut redis_conn = get_redis_connection(app_config).expect("Unable to establish a connection to Redis.");
+	let redis_conn = get_redis_connection(app_config, true);
+	if redis_conn.is_none() {
+		return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Unable to establish connection to Redis.")));
+	}
+	let mut redis_conn = redis_conn.unwrap();
 	let key: String = format!("{}:{}", RQ_JOB_PREFIX, job_id);
 
 	let result: Result<HashMap<String, Vec<u8>>, RedisError> =  redis_conn.hgetall(&key); // reference to avoid a Move.

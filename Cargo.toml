@@ -6,6 +6,7 @@
 # 3. 'btu_daemon' is a binary that runs in the background as a daemon.
 
 [workspace]
+resolver = "2"
 members = [
     "btu_scheduler",
     "btu_cli",

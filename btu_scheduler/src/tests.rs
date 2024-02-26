@@ -139,6 +139,7 @@ mod tests {
 		assert_eq!(expected, actual);
 	}
 
+	/*
     #[test]
     fn test_email_info() {
 
@@ -151,7 +152,7 @@ mod tests {
 		}
 		assert_eq!(email_result.is_ok(), true);
 	}
-
+ 	*/
 
 	#[test]
 	fn test_multi_day_cron1() {

@@ -46,6 +46,7 @@ pub struct AppConfig {
 	pub full_refresh_internal_secs: u32,
 	pub time_zone_string: String,
 	pub tracing_level: LevelFilterWrapper,
+	pub startup_without_database_connections: bool,
 
 	pub email_address_from: Option<String>,
 	pub email_host_name: Option<String>,
@@ -126,6 +127,7 @@ impl AppConfig {
 			full_refresh_internal_secs: 180,
 			time_zone_string: "UTC".to_string(),
 			tracing_level: LevelFilterWrapper::new(filter::LevelFilter::INFO),
+			startup_without_database_connections: false,
 			email_address_from: None,
 			email_host_name: None,
 			email_host_port: None,
