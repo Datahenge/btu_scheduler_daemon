@@ -37,6 +37,7 @@ pub fn exit(code: i32) -> ! {
     std::process::exit(code);
 }
 
+
 pub fn exit_msg<T: Display>(code: i32, msg: T) -> ! {
     let _ = stdout().write_all(msg.to_string().as_bytes());
     std::process::exit(code);
